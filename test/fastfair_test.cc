@@ -1,16 +1,24 @@
-#include "FAST_FAIR/btree_pmem.h"
+#include "FAST_FAIR/btree_pmem_buflog.h"
 
 #include <iostream>
 #include "test_util.h"
+
+// ralloc
+#include "ralloc.hpp"
+#include "pptr.hpp"
+
+#include <libpmem.h>
 
 #include "gflags/gflags.h"
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
+util::RandomGenerator gen;
+const size_t kValueSize = 64;
 
 // For hash table 
-DEFINE_uint32(num, 100000, "number of input");
+DEFINE_uint32(num, 10000, "number of input");
 DEFINE_uint32(threads, 1, "number of threads");
 DEFINE_string(mode, "insert", "insert, recover");
 
@@ -30,8 +38,10 @@ int main(int argc, char *argv[])
 
 
   btree *bt = nullptr;
+  util::IPMWatcher watcher("fastfair");
   if (FLAGS_mode == "insert") {           
-    #ifdef __BTREE_PMEM_H
+    #if defined __BTREE_PMEM_H || defined __BTREE_PMEM_BUFLOG_H
+    DistroyBtree();
     bt = CreateBtree();
     #else
     bt = new btree();
@@ -40,7 +50,17 @@ int main(int argc, char *argv[])
     auto key_iter = trace.Begin();
     for (int i = 0; i < FLAGS_num; ++i) {
       size_t key = key_iter.Next();
-      bt->btree_insert(key, (char *)key);
+      Slice  val = gen.Generate(kValueSize);
+      #if defined __BTREE_PMEM_BUFLOG_H
+      bt->btree_insert(key, (char*)&val);
+      #elif defined __BTREE_PMEM_H
+      char* buf = (char*)RP_malloc(kValueSize);
+      pmem_memcpy_persist(buf, val.data(), val.size());
+      bt->btree_insert(key, buf);
+      #else
+      bt->btree_insert(key, (char*)key);
+      #endif
+      
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     long long elapsedTime =
@@ -57,6 +77,8 @@ int main(int argc, char *argv[])
       res = bt->btree_search(key);
       if (res != nullptr) {
         found++;
+      } else {
+        printf("%d th key not found\n", i);
       }
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -66,7 +88,7 @@ int main(int argc, char *argv[])
           << " keys. Found " << found << ". time(uses) : " << elapsedTime / 1000 << endl;   
   } 
   else if (FLAGS_mode == "recover") {
-    #ifdef __BTREE_PMEM_H
+    #if defined __BTREE_PMEM_H || defined __BTREE_PMEM_BUFLOG_H
     bt = RecoverBtree();
     #else
     break;

@@ -1,117 +1,104 @@
-#ifndef _XSBATCH_H_
-#define _XSBATCH_H_
+#ifndef _BUFLOG_H_
+#define _BUFLOG_H_
 
+#include "robin_hood.h"
+#include "slice.h"
+
+#include <immintrin.h>
 #include <inttypes.h>
 #include <cstdlib>
 #include <cstring>
 #include <cassert>
 #include <string>
+#include <vector>
 
 #include <atomic>
 
 #include <libpmem.h>
 
-#define XSBATCH_FLUSH(addr) asm volatile ("clwb (%0)" :: "r"(addr))
-#define XSBATCH_FLUSHFENCE asm volatile ("sfence" ::: "memory")
+// ralloc
+#include "ralloc.hpp"
+#include "pptr.hpp"
 
-namespace xsbatch {
+#define BUFLOG_FLUSH(addr) asm volatile ("clwb (%0)" :: "r"(addr))
+#define BUFLOG_FLUSHFENCE asm volatile ("sfence" ::: "memory")
+
+
+inline void BUFLOG_COMPILER_FENCE() {
+    asm volatile("" : : : "memory"); /* Compiler fence. */
+}
+
+
+namespace buflog {
+
+std::string print_binary(uint16_t bitmap) {
+    char buffer[1024];
+    static std::string bit_rep[16] = {
+        "0000", "0001", "0010", "0011",
+        "0100", "0101", "0110", "0111",
+        "1000", "1001", "1010", "1011",
+        "1100", "1101", "1110", "1111"
+    };
+    sprintf(buffer, "%s%s%s%s", 
+        bit_rep[(bitmap >> 12) & 0x0F].c_str(),
+        bit_rep[(bitmap >>  8) & 0x0F].c_str(),
+        bit_rep[(bitmap >>  4) & 0x0F].c_str(),
+        bit_rep[(bitmap >>  0) & 0x0F].c_str()
+    );
+    return buffer;
+}
     
 inline bool isPowerOfTwo(size_t n) {
     return (n != 0 && (__builtin_popcount(n >> 32) + __builtin_popcount(n & 0xFFFFFFFF)) == 1 );
 }
 
-/** Slice
- *  @note: Derived from LevelDB. the data is stored in the *data_
-*/
-class Slice {
+
+// Usage example:
+// BitSet bitset(0x05); 
+// for (int i : bitset) {
+//     printf("i: %d\n", i);
+// }
+// this will print out 0, 2
+class BitSet {
 public:
-    using type = Slice;
-    // operator <
-    bool operator < (const Slice& b) const {
-        return compare(b) < 0 ;
+    BitSet():
+        bits_(0) {}
+
+    explicit BitSet(uint32_t bits): bits_(bits) {}
+
+    BitSet(const BitSet& b) {
+        bits_ = b.bits_;
+    }
+    
+    inline BitSet& operator++() {
+        // remove the lowest 1-bit
+        bits_ &= (bits_ - 1);
+        return *this;
     }
 
-    bool operator > (const Slice& b) const {
-        return compare(b) > 0 ;
+    inline explicit operator bool() const { return bits_ != 0; }
+
+    inline int operator*() const { 
+        // count the tailing zero bit
+        return __builtin_ctz(bits_); 
     }
 
-    // explicit conversion
-    inline operator std::string() const {
-        return std::string(data_, size_);
+    inline BitSet begin() const { return *this; }
+
+    inline BitSet end() const { return BitSet(0); }
+
+    inline uint32_t bit() {
+        return bits_;
     }
-
-    // Create an empty slice.
-    Slice() : data_(""), size_(0) { }
-
-    // Create a slice that refers to d[0,n-1].
-    Slice(const char* d, size_t n) : data_(d), size_(n) { }
-
-    // Create a slice that refers to the contents of "s"
-    Slice(const std::string& s) : data_(s.data()), size_(s.size()) { }
-
-    // Create a slice that refers to s[0,strlen(s)-1]
-    Slice(const char* s) : 
-        data_(s), 
-        size_((s == nullptr) ? 0 : strlen(s)) {
+private:
+    friend bool operator==(const BitSet& a, const BitSet& b) {
+        return a.bits_ == b.bits_;
     }
-
-    // Return a pointer to the beginning of the referenced data
-    inline const char* data() const { return data_; }
-
-    // Return the length (in bytes) of the referenced data
-    inline size_t size() const { return size_; }
-
-    // Return true iff the length of the referenced data is zero
-    inline bool empty() const { return size_ == 0; }
-
-    // Return the ith byte in the referenced data.
-    // REQUIRES: n < size()
-    inline char operator[](size_t n) const {
-        assert(n < size());
-        return data_[n];
+    friend bool operator!=(const BitSet& a, const BitSet& b) {
+        return a.bits_ != b.bits_;
     }
-
-    // Change this slice to refer to an empty array
-    inline void clear() { data_ = ""; size_ = 0; }
-
-    inline std::string ToString() const {
-        std::string res;
-        res.assign(data_, size_);
-        return res;
-    }
-
-    // Three-way comparison.  Returns value:
-    //   <  0 iff "*this" <  "b",
-    //   == 0 iff "*this" == "b",
-    //   >  0 iff "*this" >  "b"
-    inline int compare(const Slice& b) const {
-        assert(data_ != nullptr && b.data_ != nullptr);
-        const size_t min_len = (size_ < b.size_) ? size_ : b.size_;
-        int r = memcmp(data_, b.data_, min_len);
-        if (r == 0) {
-            if (size_ < b.size_) r = -1;
-            else if (size_ > b.size_) r = +1;
-        }
-        return r;
-    }
-
-    friend std::ostream& operator<<(std::ostream& os, const Slice& str) {
-        os <<  str.ToString();
-        return os;
-    }
-
-    const char* data_;
-    size_t size_;
-}; // end of class Slice
-
-inline bool operator==(const Slice& x, const Slice& y) {
-    return ((x.size() == y.size()) &&
-            (memcmp(x.data(), y.data(), x.size()) == 0));
-}
-
-inline bool operator!=(const Slice& x, const Slice& y) {
-    return !(x == y);
-}
+    uint32_t bits_;
+};
 
 /** Hasher
  *  @note: provide hash function for string
@@ -212,7 +199,7 @@ enum DataLogNodeMetaType: unsigned char {
 };
 
 using DataLogNodePtr  = uint64_t;
-using log_data_size = uint32_t;
+using log_data_size   = uint32_t;
 /** 
  *  Format:
  *  | size | .. data ... |  DataLogNodeMeta |
@@ -228,7 +215,7 @@ using log_data_size = uint32_t;
  *      none_:
  *      data_size_: equals to `size`
  *      next_;
-*/      
+*/
 class DataLogNodeMeta {
 public:
     inline DataLogNodeMeta* Next(void) {
@@ -331,8 +318,8 @@ public:
         meta->commit_tail_ = log_cur_tail_;
 
         if (is_pmem) {
-            XSBATCH_FLUSH(meta);
-            XSBATCH_FLUSHFENCE;
+            BUFLOG_FLUSH(meta);
+            BUFLOG_FLUSHFENCE;
         }
     }
 
@@ -345,6 +332,31 @@ public:
         }
         return off;
     };
+
+    inline uint64_t LogTail(void) {
+        return log_cur_tail_;
+    }
+
+    inline char* Append(Slice entry, DataLogNodePtr next, uint8_t checksum, bool is_pmem) {
+        int total_size = sizeof(log_data_size) + entry.size() + sizeof(DataLogNodeMeta);
+        size_t off = log_cur_tail_.fetch_add(total_size, std::memory_order_relaxed);
+        char* addr = log_start_addr_ + off;
+        // | size | .. data ... |  DataLogNodeMeta |
+        *(log_data_size*)(addr) = entry.size();
+        memcpy(addr + sizeof(log_data_size), entry.data(), entry.size());
+        DataLogNodeMeta meta;
+        meta.type_ = kDataLogNodeValid;
+        meta.data_size_ = entry.size();
+        meta.next_ = next;
+        meta.checksum_ = checksum;
+        memcpy(addr + sizeof(log_data_size) + entry.size(), &meta, sizeof(DataLogNodeMeta));
+
+        if (is_pmem) {
+            pmem_flush(addr + off, total_size);
+        }
+        
+        return log_start_addr_ + off;
+    }
 
 
     /**
@@ -460,13 +472,292 @@ private:
 
 } // end of namespace linkedredolog
 
-class BufferNode {
+struct KV {
+    int64_t  key;
+    char*    val;
+};
+
+class SortedBufNode {
 public:
+    static constexpr uint16_t kBitMapMask = 0x3FFF;
 
+    SortedBufNode () {
+        memset(this, 0, 64);
+    }
+
+    inline void Reset(void) {
+        memset(this, 0, 64);
+    }
+
+    inline BitSet MatchBitSet(uint8_t hash) {
+        auto bitset = _mm_set1_epi8(hash);
+        auto tag_meta = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tags_));
+        uint16_t mask = _mm_cmpeq_epi8_mask(bitset, tag_meta);
+        return BitSet(mask & meta_.valid_ & (~meta_.deleted_) & kBitMapMask);  // valid filter and detetion filter.
+    }
+
+    inline BitSet EmptyBitSet() {
+        return BitSet( ((~meta_.valid_) | meta_.deleted_) & kBitMapMask);
+    }
+
+    inline BitSet ValidBitSet() {
+        return BitSet(meta_.valid_ & (~meta_.deleted_) & kBitMapMask);
+    }
+
+    inline int ValidCount() {
+        return __builtin_popcount(meta_.valid_ & (~meta_.deleted_) & kBitMapMask);
+    }
+
+    struct SortByKey {
+        SortByKey(SortedBufNode* node): node_(node) {
+        }
+        bool operator()(const int& a, const int& b) {
+            return node_->kvs_[a].key < node_->kvs_[b].key;
+        }
+        SortedBufNode* node_;
+    };
+
+    void Sort(void) {
+        // step 1: obtain the valid pos
+        std::vector<int> valid_pos;
+        for (int i : ValidBitSet()) {
+            valid_pos.push_back(i);
+        }  
+
+        // step 2: sort the valid_pos according to the related key
+        std::sort(valid_pos.begin(), valid_pos.end(), SortByKey(this));
+
+        // step 3: set the seqs_
+        int si = 0;
+        for (int i : valid_pos) {
+            seqs_[si++] = i;
+        }
+    }
+
+    inline bool Put(int64_t key, char* val) {
+        size_t hash = Hasher::hash_int(key);
+        size_t tag  = hash & 0xFF;
+
+        // step 1. check if node already has this key
+        int old_pos = -1;
+        for (int i : MatchBitSet(tag)) {
+            KV kv = kvs_[i];
+            if (kv.key == key) {
+                // update request
+                old_pos = i;
+            } 
+        }
+
+        int valid_count = ValidCount();
+        if (old_pos == -1) {
+            // new insertion
+            if (valid_count == 13) {
+                // full of records
+                return false;
+            } 
+        }
+
+        // can insert
+        int insert_pos = *EmptyBitSet(); // obtain empty slot
+
+        // set the key and value
+        kvs_[insert_pos].key = key;
+        kvs_[insert_pos].val = val;
+        tags_[insert_pos]    = tag;
+        BUFLOG_COMPILER_FENCE();
+
+        // atomicly set the meta
+        Meta new_meta = meta_;
+        new_meta.valid_ = meta_.valid_ | (1 << insert_pos);
+        if (old_pos != -1) {
+            // reset old pos if this is an update request.
+            new_meta.valid_ ^= (1 << old_pos);
+        }
+        new_meta.deleted_ = meta_.deleted_ & (~(1 << insert_pos));
+        meta_.data_ = new_meta.data_;
+        return true;
+    }
+
+    inline bool Get(int64_t key, char*& val) {
+        size_t hash = Hasher::hash_int(key);
+        size_t tag  = hash & 0xFF;
+
+        for (int i : MatchBitSet(tag)) {
+            KV kv = kvs_[i];
+            if (kv.key == key) {
+                // find the key
+                val = kv.val;
+                return true;
+            } 
+        }
+        return false;
+    }
+
+    inline bool Delete(int64_t key) {
+        size_t hash = Hasher::hash_int(key);
+        size_t tag  = hash & 0xFF;
+
+        for (int i : MatchBitSet(tag)) {
+            KV kv = kvs_[i];
+            if (kv.key == key) {
+                // find the key, set the deleted map
+                meta_.deleted_ = meta_.deleted_ | (1 << i);
+                return true;
+            } 
+        }
+        return false;
+    }
+
+    std::string ToString(void) {
+        char buf[1024];
+        std::string str_valid = print_binary(meta_.valid_);
+        std::string str_deleted = print_binary(meta_.deleted_);
+        std::string str_tags;
+        std::string str_seqs;
+        std::string str_kvs;
+        for (int i = 0; i < 14; i++) {
+            str_tags += std::to_string(tags_[i]) + " ";
+            str_seqs += std::to_string(seqs_[i]) + " ";
+            str_kvs  += std::to_string(kvs_[i].key) + " ";
+        }
+        sprintf(buf, "valid: 0b%s, deleted: 0b%s, tags: %s, seqs: %s, k: %s", 
+                str_valid.c_str(),
+                str_deleted.c_str(),
+                str_tags.c_str(),
+                str_seqs.c_str(),
+                str_kvs.c_str());
+        return buf;
+    }
+    
+    class IteratorSorted {
+    public:
+        IteratorSorted(SortedBufNode* node) :
+            node_(node),
+            i_(0),
+            i_end_(node->ValidCount()) {
+        }
+
+        inline bool Valid(void) {
+            return i_ < i_end_;
+        }
+
+        KV& operator*() const {
+            return node_->kvs_[node_->seqs_[i_]];
+        }
+
+        KV* operator->() const {
+            return &node_->kvs_[node_->seqs_[i_]];
+        }
+
+        // Prefix ++ overload 
+        inline IteratorSorted& operator++() { 
+            i_++;
+            return *this; 
+        }
+
+        // Postfix ++ overload 
+        inline IteratorSorted operator++(int) { 
+            auto tmp = *this;
+            i_++;
+            return tmp; 
+        }
+    private:
+        SortedBufNode* node_;
+        int i_;
+        int i_end_;
+    };
+
+    IteratorSorted sBegin() {
+        return IteratorSorted(this);
+    }
+
+    class Iterator {
+    public:
+        Iterator(SortedBufNode* node) :
+            node_(node),
+            i_(0),
+            i_end_(node->ValidCount()) {
+        }
+
+        inline bool Valid(void) {
+            return i_ < i_end_;
+        }
+
+        KV& operator*() const {
+            return node_->kvs_[i_];
+        }
+
+        KV* operator->() const {
+            return &node_->kvs_[i_];
+        }
+
+        // Prefix ++ overload 
+        inline Iterator& operator++() { 
+            i_++;
+            return *this; 
+        }
+
+        // Postfix ++ overload 
+        inline Iterator operator++(int) { 
+            auto tmp = *this;
+            i_++;
+            return tmp; 
+        }
+    private:
+        SortedBufNode* node_;
+        int i_;
+        int i_end_;
+    };
+    
+    Iterator Begin() {
+        return Iterator(this);
+    }
+
+    friend class Iterator;
+    friend class IteratorSorted;
 private:
+    union Meta{
+        struct {
+            uint16_t    valid_;
+            uint16_t    deleted_;
+        };
+        uint32_t data_;
+    } meta_;
+    char        tags_[14];
+    signed char seqs_[14];
+    KV          kvs_[14];
+};
 
-}; // end of class buffer node
+static_assert(sizeof(SortedBufNode) == 256, "SortBufNode is not 256 byte");
 
-}; // end of namespace xsbatch
+
+class UnsortBufNode {
+
+};
+
+class BufNodeTable {
+public:
+    inline bool IsExist(size_t id) {
+        return umap_.find(id) != umap_.end();
+    }
+
+    inline void AddOneBuf(size_t id, char* buf_ptr) {
+        umap_[id] =  buf_ptr;
+    }
+
+    inline char* ObtainBuf(size_t id) {
+        auto iter = umap_.find(id);
+        if (iter != umap_.end()) {
+            return iter->second;
+        }
+        return nullptr;
+    }
+    
+private:
+    // mapping of BufNode id -> BufNode ptr
+    robin_hood::unordered_map<size_t, char*> umap_; 
+}; // end of class BufTable
+
+}; // end of namespace buflog
 
 #endif
