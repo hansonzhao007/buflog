@@ -8,12 +8,12 @@ set(CMAKE_CXX_COMPILER "clang++")
 # set the project name
 project (index VERSION 0.0.1 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # default using release mode
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE RelWithDebInfo) # RelWithDebInfo
+  set(CMAKE_BUILD_TYPE Release) # RelWithDebInfo
 endif()
 
 # # add Intel PCM library
@@ -71,11 +71,9 @@ if(CMAKE_CXX_COMPILER MATCHES "clang")
     set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 endif(CMAKE_CXX_COMPILER MATCHES "clang")
 
-include(CheckCXXCompilerFlag)
-CHECK_CXX_COMPILER_FLAG("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
-if(COMPILER_SUPPORTS_MARCH_NATIVE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
-endif()
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+
 
 # add pthread support
 find_package(Threads REQUIRED)

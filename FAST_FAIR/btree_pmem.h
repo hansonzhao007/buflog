@@ -27,6 +27,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <vector>
+#include <immintrin.h>
 
 // ralloc
 #include "ralloc.hpp"
@@ -46,18 +47,6 @@ using entry_key_t = int64_t;
 
 pthread_mutex_t print_mtx;
 
-static inline void cpu_pause() { __asm__ volatile("pause" ::: "memory"); }
-static inline unsigned long read_tsc(void) {
-  unsigned long var;
-  unsigned int hi, lo;
-
-  asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
-  var = ((unsigned long long int)hi << 32) | lo;
-
-  return var;
-}
-
-unsigned long write_latency_in_ns = 0;
 unsigned long long search_time_in_insert = 0;
 unsigned int gettime_cnt = 0;
 unsigned long long clflush_time_in_insert = 0;
@@ -67,18 +56,12 @@ int node_cnt = 0;
 
 using namespace std;
 
-inline void mfence() { asm volatile("mfence" ::: "memory"); }
+inline void mfence() { asm volatile("sfence" ::: "memory"); }
 
 inline void clflush(char *data, int len) {
   volatile char *ptr = (char *)((unsigned long)data & ~(CACHE_LINE_SIZE - 1));
-  mfence();
   for (; ptr < data + len; ptr += CACHE_LINE_SIZE) {
-    unsigned long etsc =
-        read_tsc() + (unsigned long)(write_latency_in_ns * CPU_FREQ_MHZ / 1000);
-    asm volatile("clflush %0" : "+m"(*(volatile char *)ptr));
-    while (read_tsc() < etsc)
-      cpu_pause();
-    //++clflush_cnt;
+    _mm_clwb((void*)ptr);
   }
   mfence();
 }

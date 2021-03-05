@@ -51,18 +51,6 @@ using entry_key_t = int64_t;
 
 pthread_mutex_t print_mtx;
 
-static inline void cpu_pause() { __asm__ volatile("pause" ::: "memory"); }
-static inline unsigned long read_tsc(void) {
-  unsigned long var;
-  unsigned int hi, lo;
-
-  asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
-  var = ((unsigned long long int)hi << 32) | lo;
-
-  return var;
-}
-
-unsigned long write_latency_in_ns = 0;
 unsigned long long search_time_in_insert = 0;
 unsigned int gettime_cnt = 0;
 unsigned long long clflush_time_in_insert = 0;
@@ -72,18 +60,12 @@ int node_cnt = 0;
 
 using namespace std;
 
-inline void mfence() { asm volatile("mfence" ::: "memory"); }
+inline void mfence() { asm volatile("sfence" ::: "memory"); }
 
 inline void clflush(char *data, int len) {
   volatile char *ptr = (char *)((unsigned long)data & ~(CACHE_LINE_SIZE - 1));
-  mfence();
   for (; ptr < data + len; ptr += CACHE_LINE_SIZE) {
-    unsigned long etsc =
-        read_tsc() + (unsigned long)(write_latency_in_ns * CPU_FREQ_MHZ / 1000);
-    asm volatile("clflush %0" : "+m"(*(volatile char *)ptr));
-    while (read_tsc() < etsc)
-      cpu_pause();
-    //++clflush_cnt;
+    _mm_clwb((void*)ptr);
   }
   mfence();
 }
@@ -95,12 +77,13 @@ private:
   int height;
   pptr<page> root;
   pptr<char> datalog_addr_;
-  buflog::linkedredolog::DataLog datalog_;
-
-  buflog::BufNodeTable* bufnode_table_;    // dram table to record bufnode
+  
   // btree();
 
 public:
+  inline static buflog::linkedredolog::DataLog datalog_;
+  inline static buflog::BufNodeTable* bufnode_table_ = nullptr;    // dram table to record bufnode
+
   ~btree() {
     RP_close();
   }
@@ -120,14 +103,21 @@ public:
   friend class page;
 };
 
+static_assert(sizeof(btree) == 24, "btree size is not 24 byte");
+
 class header {
 private:
   pptr<page> leftmost_ptr;// 8 bytes
   pptr<page> sibling_ptr; // 8 bytes
-  uint32_t level;         // 4 bytes
+  struct {
+    uint32_t level:30;
+    uint32_t immutable:2;
+  };                      // 4 bytes
+  
   uint8_t switch_counter; // 1 bytes
   uint8_t is_deleted;     // 1 bytes
   int16_t last_index;     // 2 bytes
+
   std::mutex *mtx;        // 8 bytes
 
   friend class page;
@@ -136,7 +126,7 @@ private:
 public:
   header() {
     mtx = new std::mutex();
-
+    immutable = 0;
     leftmost_ptr = nullptr;
     sibling_ptr = nullptr;
     switch_counter = 0;
@@ -144,8 +134,11 @@ public:
     is_deleted = false;
   }
 
+  // TODO: fix the dram lock. Need to new mutex for each page after reboot.
   ~header() { delete mtx; }
 };
+
+static_assert(sizeof(header) == 32, "page header is not 32 byte");
 
 class entry {
 private:
@@ -515,6 +508,64 @@ public:
     return true;
   }
 
+  /**
+   * @brief Create a new page using existing page and full bufnode.
+   *        Out-of-place merge.
+   * !note: make sure the bufnode has been sorted before using.
+   * @param p 
+   * @param bufnode 
+   * @return page* 
+   */
+  inline page* merge_page_buffer(page* old_leafnode, int num_entreis, buflog::SortedBufNode* bufnode) {
+    // step 1. Create new leafnode page
+    page* buf = reinterpret_cast<page*>(RP_malloc(sizeof(page)));
+    page* new_leafnode = new (buf) page(old_leafnode->hdr.level);
+
+    // step 2. Merge the kv in old_leafnode and bufnode into new_leafnode
+    auto iter = bufnode->sBegin();
+    int old_i = 0, new_i = 0;
+    while (old_i < num_entreis && iter.Valid()) {
+      auto& buf_kv = *iter;
+      auto& leaf_kv = old_leafnode->records[old_i];
+      if (buf_kv.key < leaf_kv.key) {
+        new_leafnode->records[new_i].key = buf_kv.key;
+        new_leafnode->records[new_i].ptr = buf_kv.val;
+        iter++;
+      } else {
+        new_leafnode->records[new_i].key = leaf_kv.key;
+        new_leafnode->records[new_i].ptr = leaf_kv.ptr;
+        old_i++;
+      }
+      new_i++;
+    }
+    // merge the remaining 
+    if (old_i < num_entreis) {
+      while (old_i < num_entreis) {
+        auto& leaf_kv = old_leafnode->records[old_i];
+        new_leafnode->records[new_i].key = leaf_kv.key;
+        new_leafnode->records[new_i].ptr = leaf_kv.ptr;
+        old_i++;
+        new_i++;
+      }
+    } else {
+      while (iter.Valid()) {
+        auto& buf_kv = *iter;
+        new_leafnode->records[new_i].key = buf_kv.key;
+        new_leafnode->records[new_i].ptr = buf_kv.val;
+        iter++;
+        new_i++;
+      }
+    }
+
+    // step 3. Link the new_leaf to old_leaf's sibling
+    new_leafnode->hdr.sibling_ptr = old_leafnode->hdr.sibling_ptr;
+
+    // step 4. Flush the entire content
+    clflush((char*)new_leafnode, sizeof(page));
+
+    return new_leafnode;
+  }
+
   inline void insert_key(entry_key_t key, char *ptr, int *num_entries,
                          bool flush = true, bool update_last_index = true) {
     // update switch_counter
@@ -589,7 +640,7 @@ public:
   }
 
   // Insert a new key - FAST and FAIR
-  page *store(btree *bt, char *left, entry_key_t key, char *right, bool flush,
+  page *store(page* parent, btree *bt, char *left, entry_key_t key, char *right, bool flush,
               bool with_lock, page *invalid_sibling = nullptr) {
     if (with_lock) {
       hdr.mtx->lock(); // Lock the write lock
@@ -609,7 +660,7 @@ public:
         if (with_lock) {
           hdr.mtx->unlock(); // Unlock the write lock
         }
-        return hdr.sibling_ptr->store(bt, nullptr, key, right, true, with_lock,
+        return hdr.sibling_ptr->store(nullptr, bt, nullptr, key, right, true, with_lock,
                                       invalid_sibling);
       }
     }
@@ -617,32 +668,57 @@ public:
     int num_entries = count();
     
     // !buflog: Obtain the bufnode according to the page address
-    buflog::SortedBufNode* bufnode = reinterpret_cast<buflog::SortedBufNode*>(bt->bufnode_table_->ObtainBuf((size_t)this));
+    buflog::SortedBufNode* bufnode = nullptr;
     int bufnode_entries = 0;
-    if (bufnode != nullptr) {
-      bufnode_entries = bufnode->ValidCount();
-      // ------ append to log ------
-      Slice* val_ptr = reinterpret_cast<Slice*>(right);
-      uint8_t checksum = buflog::Hasher::hash(val_ptr->data(), val_ptr->size()) & 0xFF;
-      // TODO: add next position
-      right = bt->datalog_.Append(*val_ptr, bt->datalog_.LogTail(), checksum, true);
-      // printf("append addr: 0x%lx\n", right);
+    if (hdr.leftmost_ptr == nullptr) { // leafnode
+      bufnode = reinterpret_cast<buflog::SortedBufNode*>(btree::bufnode_table_->ObtainBuf((size_t)this));      
+      if (bufnode != nullptr) {
+        bufnode_entries = bufnode->ValidCount();
+        // ------ append to log ------
+        // Slice* val_ptr = reinterpret_cast<Slice*>(right);
+        // uint8_t checksum = buflog::Hasher::hash(val_ptr->data(), val_ptr->size()) & 0xFF;
+        // // TODO: add next position
+        // right = bt->datalog_.Append(*val_ptr, bt->datalog_.LogTail(), checksum, true);
+        // printf("append addr: 0x%lx\n", right);
+      }
     }
 
     // FAST
     if (num_entries + bufnode_entries < cardinality - 1) {
       // !buflog: insert to the bufnode if possible      
-      if (bufnode != nullptr) {    
+      if (bufnode != nullptr) {
         // insert to the bufnode            
         bool res = bufnode->Put(key, right);
         if (res == true) {
           // successfully inserted to bufnode
         } else {
           // bufnode is full, flush to pmem page
-          auto iter = bufnode->Begin();
+          // // step 1. merge a new leafnode (situation 1)
+          // bufnode->Sort();
+          // page* new_leafnode = merge_page_buffer(this, num_entries, bufnode);
+
+          // // step 2. change this leafnode to immutable (situation 2)
+          // hdr.immutable = true;
+          // clflush((char*)this, sizeof(header));
+
+          // // step 3. change the previous node's(if exsits) sibling to new_leafnode
+          // page* pre_leafnode = nullptr;
+          // page* cur_leafnode = nullptr;
+          // for (int i = 0; i < cardinality; i++) { // find the previous
+          //   char* tmp = parent->records[i].ptr;
+          //   cur_leafnode = (page*)tmp;
+          //   if (cur_leafnode == this) {
+          //     break;
+          //   } else {
+          //     pre_leafnode = cur_leafnode;
+          //   }
+          // }
+
+          bufnode->Sort();
+          auto iter = bufnode->sBegin();  
           while (iter.Valid()) {
             auto& kv = *iter;
-            insert_key(kv.key, kv.val, &num_entries, flush);
+            insert_key(kv.key, kv.val, &num_entries, false);
             iter++;
           }
           bufnode->Reset();
@@ -663,10 +739,11 @@ public:
 
       // !buflog: flush bufnode to page first
       if (bufnode != nullptr) {
-        auto iter = bufnode->Begin();
+        bufnode->Sort();
+        auto iter = bufnode->sBegin();
         while (iter.Valid()) {
           auto& kv = *iter;
-          insert_key(kv.key, kv.val, &num_entries, flush);
+          insert_key(kv.key, kv.val, &num_entries, false);
           iter++;
         }
         bufnode->Reset();
@@ -689,7 +766,7 @@ public:
 
         // !buflog: create a bufnode for leaf page
         buflog::SortedBufNode* new_bufnode = new buflog::SortedBufNode();                              
-        bt->bufnode_table_->AddOneBuf((size_t)sibling, (char*)new_bufnode);
+        btree::bufnode_table_->AddOneBuf((size_t)sibling, (char*)new_bufnode);
 
       } else { // internal node
         for (int i = m + 1; i < num_entries; ++i) {
@@ -719,7 +796,7 @@ public:
 
       num_entries = hdr.last_index + 1;
 
-      page *ret;
+      page *ret = nullptr;
 
       // insert the key
       if (key < split_key) {
@@ -841,7 +918,7 @@ public:
     if (hdr.leftmost_ptr == nullptr) { // Search a leaf node
 
       // !buflog: locate the bufnode and search if key exists
-      buflog::SortedBufNode* bufnode = reinterpret_cast<buflog::SortedBufNode*>(bt->bufnode_table_->ObtainBuf((size_t)this));
+      buflog::SortedBufNode* bufnode = reinterpret_cast<buflog::SortedBufNode*>(btree::bufnode_table_->ObtainBuf((size_t)this));
       if (bufnode != nullptr) {
         bool res = bufnode->Get(key, ret);
         if (res == true) {
@@ -1048,12 +1125,12 @@ btree* CreateBtree(void) {
   page* buf = reinterpret_cast<page*>(RP_malloc(sizeof(page)));
   page* root = new (buf) page(0);
   btree_root->root = root;
-  btree_root->bufnode_table_ = new buflog::BufNodeTable();
+  btree::bufnode_table_ = new buflog::BufNodeTable();
   btree_root->datalog_addr_ = reinterpret_cast<char*>(RP_malloc(FASTFAIR_PMEM_DATALOG_SIZE));
-  btree_root->datalog_.Create(btree_root->datalog_addr_, FASTFAIR_PMEM_DATALOG_SIZE);
+  btree::datalog_.Create(btree_root->datalog_addr_, FASTFAIR_PMEM_DATALOG_SIZE);
   // !buflog: create a bufnode for first leaf page
   buflog::SortedBufNode* new_bufnode = new buflog::SortedBufNode();                              
-  btree_root->bufnode_table_->AddOneBuf((size_t)root, (char*)new_bufnode);
+  btree::bufnode_table_->AddOneBuf((size_t)root, (char*)new_bufnode);
   return btree_root;
 }
 
@@ -1076,8 +1153,8 @@ btree* RecoverBtree(void) {
   }
 
   btree* btree_root = RP_get_root<btree>(0);
-  btree_root->bufnode_table_ = new buflog::BufNodeTable();
-  btree_root->datalog_.Open(btree_root->datalog_addr_);
+  btree::bufnode_table_ = new buflog::BufNodeTable();
+  btree::datalog_.Open(btree_root->datalog_addr_);
   return btree_root;
 }
 
@@ -1095,6 +1172,7 @@ char *btree::btree_search(entry_key_t key) {
   }
 
   page *t = nullptr;
+  // if == sibling_ptr, continue searching the node on the linked-list
   while ((t = (page *)p->linear_search(key, this)) == p->hdr.sibling_ptr) {
     p = t;
     if (!p) {
@@ -1114,12 +1192,14 @@ char *btree::btree_search(entry_key_t key) {
 void btree::btree_insert(entry_key_t key, char *right) { // need to be string
   page *p = (page *)root;
 
-  // find the leaf node
+  // find the leaf node. Normally p will never be nullptr
+  page* parent = nullptr;
   while (p->hdr.leftmost_ptr != nullptr) {
+    parent = p;
     p = (page *)p->linear_search(key, this);
   }
 
-  if (!p->store(this, nullptr, key, right, true, true)) { // store
+  if (!p->store(parent, this, nullptr, key, right, true, true)) { // store
     btree_insert(key, right);
   }
 }
@@ -1132,10 +1212,13 @@ void btree::btree_insert_internal(char *left, entry_key_t key, char *right,
 
   page *p = (page *)this->root;
 
-  while (p->hdr.level > level)
+  page* parent = nullptr;
+  while (p->hdr.level > level) {
+    parent = p;
     p = (page *)p->linear_search(key, this);
+  }
 
-  if (!p->store(this, nullptr, key, right, true, true)) {
+  if (!p->store(parent, this, nullptr, key, right, true, true)) {
     btree_insert_internal(left, key, right, level);
   }
 }

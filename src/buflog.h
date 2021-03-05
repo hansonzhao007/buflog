@@ -343,13 +343,22 @@ public:
         char* addr = log_start_addr_ + off;
         // | size | .. data ... |  DataLogNodeMeta |
         *(log_data_size*)(addr) = entry.size();
-        memcpy(addr + sizeof(log_data_size), entry.data(), entry.size());
+        if (is_pmem) {
+            pmem_memcpy_nodrain(addr + sizeof(log_data_size), entry.data(), entry.size());
+        } else {
+            memcpy(addr + sizeof(log_data_size), entry.data(), entry.size());
+        }
+        
         DataLogNodeMeta meta;
         meta.type_ = kDataLogNodeValid;
         meta.data_size_ = entry.size();
         meta.next_ = next;
         meta.checksum_ = checksum;
-        memcpy(addr + sizeof(log_data_size) + entry.size(), &meta, sizeof(DataLogNodeMeta));
+        if (is_pmem) {
+            pmem_memcpy_nodrain(addr + sizeof(log_data_size) + entry.size(), &meta, sizeof(DataLogNodeMeta));
+        } else {
+            memcpy(addr + sizeof(log_data_size) + entry.size(), &meta, sizeof(DataLogNodeMeta));
+        }
 
         if (is_pmem) {
             pmem_flush(addr + off, total_size);
@@ -426,14 +435,14 @@ public:
         }
 
         inline DataLogNodeMeta* operator->(void) const {
-            DataLogNodeMeta* pre_node_meta = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + end_off_ - sizeof(DataLogNodeMeta));
-            return pre_node_meta;
+            DataLogNodeMeta* node_meta = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + end_off_ - sizeof(DataLogNodeMeta));
+            return node_meta;
         }
 
         // Prefix -- overload 
         inline ReverseIterator& operator--() 
         { 
-            end_off_ -= preNodeSize();
+            end_off_ -= NodeSize();
             return *this;
         }
 
@@ -441,15 +450,15 @@ public:
         inline ReverseIterator operator--(int) 
         { 
             auto tmp = *this;
-            end_off_ -= preNodeSize();
+            end_off_ -= NodeSize();
             return tmp; 
         }
         
     private:
-        // size of the entire LogDataNode of previous node
-        inline size_t preNodeSize(void) {
-            DataLogNodeMeta* pre_node_meta = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + end_off_ - sizeof(DataLogNodeMeta));
-            return sizeof(log_data_size) + pre_node_meta->data_size_ + sizeof(DataLogNodeMeta);
+        // size of the entire LogDataNode of data log node 
+        inline size_t NodeSize(void) {
+            DataLogNodeMeta* node_meta = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + end_off_ - sizeof(DataLogNodeMeta));
+            return sizeof(log_data_size) + node_meta->data_size_ + sizeof(DataLogNodeMeta);
         }
         int64_t end_off_;
         char*   log_addr_;
