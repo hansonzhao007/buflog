@@ -22,6 +22,8 @@ DEFINE_uint32(num, 5000000, "number of input");
 DEFINE_uint32(threads, 1, "number of threads");
 DEFINE_string(mode, "insert", "insert, recover");
 DEFINE_uint32(valuesize, 32, "value size");
+DEFINE_bool(print, false, "print tree or not");
+DEFINE_int32(key, 52, "");
 int main(int argc, char *argv[])
 {
   ParseCommandLineFlags(&argc, &argv, true);
@@ -94,30 +96,52 @@ int main(int argc, char *argv[])
       std::cout << "Search " << FLAGS_num
             << " keys. Found " << found << ". time(uses) : " << elapsedTime / 1000 << endl;   
     }
+
+    if (FLAGS_print) {
+      bt->printAll();
+      int pi;
+      int key = FLAGS_key;
+      page* parent = bt->btree_search_internal(key, pi);
+      page* leafnode_ptr = nullptr;
+      if (pi == -1) {
+        leafnode_ptr = parent->hdr.leftmost_ptr;
+      } else if (pi == -2) {
+        // 
+      } else {
+        char* tmp = parent->records[pi].ptr;
+        leafnode_ptr = (page*)tmp;
+      }
+      printf("The address of the leafnode is 0x%x if we search key %d. It is the %d-th in the parent node 0x%x,\n", leafnode_ptr, key, pi, parent);
+
+    }
     
   } 
   else if (FLAGS_mode == "recover") {
-    #if defined __BTREE_PMEM_H || defined __BTREE_PMEM_BUFLOG_H
-    bt = RecoverBtree();
-    #else
-    break;
-    #endif
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    char* res = nullptr;
-    int found = 0;
-    auto key_iter = trace.Begin();
-    for (int i = 0; i < FLAGS_num; ++i) {
-      size_t key = key_iter.Next();
-      res = bt->btree_search(key);
-      if (res != nullptr) {
-        found++;
+      #if defined __BTREE_PMEM_H || defined __BTREE_PMEM_BUFLOG_H
+      bt = RecoverBtree();
+      #else
+      break;
+      #endif
+      clock_gettime(CLOCK_MONOTONIC, &start);
+      char* res = nullptr;
+      int found = 0;
+      auto key_iter = trace.Begin();
+      for (int i = 0; i < FLAGS_num; ++i) {
+        size_t key = key_iter.Next();
+        res = bt->btree_search(key);
+        if (res != nullptr) {
+          found++;
+        }
       }
-    }
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    long long elapsedTime =
-        (end.tv_sec - start.tv_sec) * 1000000000 + (end.tv_nsec - start.tv_nsec);
-    std::cout << "Recover Search " << FLAGS_num
-          << " keys. Found " << found << ". time(uses) : " << elapsedTime / 1000 << endl;    
-  }  
+      clock_gettime(CLOCK_MONOTONIC, &end);
+      long long elapsedTime =
+          (end.tv_sec - start.tv_sec) * 1000000000 + (end.tv_nsec - start.tv_nsec);
+      std::cout << "Recover Search " << FLAGS_num
+            << " keys. Found " << found << ". time(uses) : " << elapsedTime / 1000 << endl;    
+      
+      if (FLAGS_print) {
+        bt->printAll();
+      }
+    } 
   return 0;
 }
