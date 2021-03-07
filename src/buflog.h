@@ -740,33 +740,6 @@ private:
 static_assert(sizeof(SortedBufNode) == 256, "SortBufNode is not 256 byte");
 
 
-class UnsortBufNode {
-
-};
-
-class BufNodeTable {
-public:
-    inline bool IsExist(size_t id) {
-        return umap_.find(id) != umap_.end();
-    }
-
-    inline void AddOneBuf(size_t id, char* buf_ptr) {
-        umap_[id] =  buf_ptr;
-    }
-
-    inline char* ObtainBuf(size_t id) {
-        auto iter = umap_.find(id);
-        if (iter != umap_.end()) {
-            return iter->second;
-        }
-        return nullptr;
-    }
-    
-private:
-    // mapping of BufNode id -> BufNode ptr
-    robin_hood::unordered_map<size_t, char*> umap_; 
-}; // end of class BufTable
-
 }; // end of namespace buflog
 
 #endif

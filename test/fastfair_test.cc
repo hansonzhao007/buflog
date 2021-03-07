@@ -32,13 +32,6 @@ int main(int argc, char *argv[])
 
   util::RandomKeyTrace trace(FLAGS_num);
 
-  // Initializing stats
-  clflush_cnt = 0;
-  search_time_in_insert = 0;
-  clflush_time_in_insert = 0;
-  gettime_cnt = 0;
-
-
   btree *bt = nullptr;
   
   if (FLAGS_mode == "insert") {  
@@ -97,6 +90,7 @@ int main(int argc, char *argv[])
             << " keys. Found " << found << ". time(uses) : " << elapsedTime / 1000 << endl;   
     }
 
+    #if defined __BTREE_PMEM_BUFLOG_H
     if (FLAGS_print) {
       bt->printAll();
       int pi;
@@ -112,8 +106,8 @@ int main(int argc, char *argv[])
         leafnode_ptr = (page*)tmp;
       }
       printf("The address of the leafnode is 0x%x if we search key %d. It is the %d-th in the parent node 0x%x,\n", leafnode_ptr, key, pi, parent);
-
     }
+    #endif
     
   } 
   else if (FLAGS_mode == "recover") {

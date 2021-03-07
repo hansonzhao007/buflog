@@ -36,23 +36,13 @@ const size_t FASTFAIR_PMEM_LOG_SIZE = ((10LU << 30));
 
 #define PAGESIZE 512
 
-#define CPU_FREQ_MHZ (1994)
-#define DELAY_IN_NS (1000)
 #define CACHE_LINE_SIZE 64
-#define QUERY_NUM 25
 
-#define IS_FORWARD(c) (c % 2 == 0)
+#define IS_FORWARD(c) ((c & 1) == 0)
 
 using entry_key_t = int64_t;
 
 pthread_mutex_t print_mtx;
-
-unsigned long long search_time_in_insert = 0;
-unsigned int gettime_cnt = 0;
-unsigned long long clflush_time_in_insert = 0;
-unsigned long long update_time_in_insert = 0;
-int clflush_cnt = 0;
-int node_cnt = 0;
 
 using namespace std;
 
