@@ -1,7 +1,7 @@
 #ifndef _BUFLOG_H_
 #define _BUFLOG_H_
 
-#include "robin_hood.h"
+#include "turbo_hash.h"
 #include "slice.h"
 
 #include <immintrin.h>
@@ -497,6 +497,14 @@ public:
     inline void Reset(void) {
         memset(this, 0, 64);
     }
+    inline void MaskLastN(int n) {
+        uint16_t mask = 0;
+        int count = ValidCount();
+        for (int i = count - n; i < count; ++i) {
+            mask |= (1 << seqs_[i]);
+        }
+        meta_.valid_ &= (~mask);
+    }
 
     inline BitSet MatchBitSet(uint8_t hash) {
         auto bitset = _mm_set1_epi8(hash);
@@ -724,7 +732,8 @@ public:
 
     friend class Iterator;
     friend class IteratorSorted;
-private:
+
+public:
     union Meta{
         struct {
             uint16_t    valid_;

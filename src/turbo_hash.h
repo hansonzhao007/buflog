@@ -1627,7 +1627,7 @@ public:
 
 public:
     static constexpr int kSizeVecCount = 1 << 4;
-    explicit TurboHashTable(uint32_t bucket_count = 128 << 10, uint32_t cell_count = 32):
+    explicit TurboHashTable(uint32_t bucket_count = 64 << 10, uint32_t cell_count = 32):
         bucket_count_(bucket_count),
         bucket_mask_(bucket_count - 1),
         capacity_( bucket_count * cell_count * (CellMeta256V2::SlotCount() - 1) ),

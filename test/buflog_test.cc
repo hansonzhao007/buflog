@@ -102,7 +102,7 @@ TEST(SortedBufNode, PutGet) {
     buf_node.Sort();
     printf("%s\n", buf_node.ToString().c_str());
     
-    auto iter = buf_node.Begin();
+    auto iter = buf_node.sBegin();
     while (iter.Valid()) {
         printf("%u, ", iter->key);
         iter++;

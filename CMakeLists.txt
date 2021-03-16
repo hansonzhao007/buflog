@@ -13,7 +13,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # default using release mode
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release) # RelWithDebInfo
+  set(CMAKE_BUILD_TYPE RelWithDebInfo) # RelWithDebInfo
 endif()
 
 # # add Intel PCM library
