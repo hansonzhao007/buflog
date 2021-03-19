@@ -79,7 +79,7 @@ do {\
 
 #define CONFIG_BUFNODE
 // #define CONFIG_OUT_OF_PLACE_MERGE
-#define CONFIG_DRAM_INNER
+// #define CONFIG_DRAM_INNER
 
 #define PAGESIZE 512
 #define PAGESIZE_BUFNODE 256
@@ -132,6 +132,8 @@ public:
   void getNumberOfNodes();
   void btree_insert(entry_key_t, char *);
   void btree_insert_internal(char *, entry_key_t, char *, uint32_t);
+  void btree_update_internal(entry_key_t key, char* new_leafnode_ptr, uint32_t level);
+  void btree_update_prev_sibling(entry_key_t key, char* new_leafnode_ptr);
   void btree_delete(entry_key_t);
   void btree_delete_internal(entry_key_t, char *, uint32_t, entry_key_t *,
                              bool *, page **);
@@ -615,6 +617,18 @@ public:
     return new_leafnode;
   }
 
+
+  inline void update_key(entry_key_t key, char* ptr) {
+    int num = count();
+    for (int i = 0; i < num; ++i) {
+      if (key == records[i].key) {
+        records[i].ptr = ptr;
+        clflush((char*)&records[i].ptr, 8);
+        break;
+      }
+    }
+  }
+
   inline void insert_key(entry_key_t key, char *ptr, int *num_entries,
                          bool flush = true, bool update_last_index = true) {
     // update switch_counter
@@ -688,6 +702,69 @@ public:
     ++(*num_entries);
   }
 
+
+  page *update_sibling(entry_key_t key, char* new_ptr, bool with_lock) {
+    if (with_lock) {
+      hdr.mtx->lock(); // Lock the write lock
+    }
+    if (hdr.is_deleted) {
+      if (with_lock) {
+        hdr.mtx->unlock();
+      }
+
+      return nullptr;
+    }
+
+    // If this node has a sibling node,
+    if (hdr.sibling_ptr != nullptr) {
+      // Compare this key with the first key of the sibling
+      if (key > hdr.sibling_ptr->records[0].key) {
+        if (with_lock) {
+          hdr.mtx->unlock(); // Unlock the write lock
+        }
+        return hdr.sibling_ptr->update_sibling(key, new_ptr, with_lock);
+      }
+    }
+
+    hdr.sibling_ptr = (page*) new_ptr;
+    clflush((char*)&hdr, sizeof(hdr));
+
+    if (with_lock) {
+      hdr.mtx->unlock(); // Unlock the write lock
+    }
+    return this;
+  }
+
+  page *update(entry_key_t key, char* new_ptr, bool with_lock) {
+    if (with_lock) {
+      hdr.mtx->lock(); // Lock the write lock
+    }
+    if (hdr.is_deleted) {
+      if (with_lock) {
+        hdr.mtx->unlock();
+      }
+
+      return nullptr;
+    }
+    // If this node has a sibling node,
+    if (hdr.sibling_ptr != nullptr) {
+      // Compare this key with the first key of the sibling
+      if (key > hdr.sibling_ptr->records[0].key) {
+        if (with_lock) {
+          hdr.mtx->unlock(); // Unlock the write lock
+        }
+        return hdr.sibling_ptr->update(key, new_ptr, with_lock);
+      }
+    }
+
+    update_key(key, new_ptr);
+
+    if (with_lock) {
+      hdr.mtx->unlock(); // Unlock the write lock
+    }
+    return this;
+  }
+
   // Insert a new key - FAST and FAIR
   page *store(page* parent, int pi, btree *bt, char *left, entry_key_t key, char *right, bool flush,
               bool with_lock, page *invalid_sibling = nullptr, buflog::SortedBufNode* bufnode = nullptr) {
@@ -705,7 +782,7 @@ public:
     // If this node has a sibling node,
     if (hdr.sibling_ptr != nullptr && (hdr.sibling_ptr != invalid_sibling)) {
       // Compare this key with the first key of the sibling
-      if (key > hdr.sibling_ptr->records[0].key) {
+      if (key > hdr.sibling_ptr->records[0].key || hdr.immutable == 1) {
         if (with_lock) {
           hdr.mtx->unlock(); // Unlock the write lock
         }
@@ -726,13 +803,21 @@ public:
           // bufnode is full, flush to pmem page
           #ifdef CONFIG_OUT_OF_PLACE_MERGE
           // {{{ ------------------ out-of-place merge ---------------------
-          // step 1. merge a new leafnode (situation 1)
+          // step 1. merge a new leafnode 
           bufnode->Sort();
           page* new_leafnode = merge_page_buffer(this, num_entries, bufnode);
-          // step 2. change this leafnode to immutable (situation 2)
-          hdr.immutable = true;
+          // step 2. change this leafnode to immutable 
+          hdr.immutable = 1;
           clflush((char*)this, sizeof(header));
-          // step 3. change the previous leafnode's sibling to new_leafnode (situation 3)
+          // step 3. change this immutable page's sibling to new_leafnode
+          hdr.sibling_ptr = new_leafnode;
+          clflush((char*)this, sizeof(header));
+          // step 4. change parent pointer to new_leafnode
+          if (with_lock) {
+            hdr.mtx->unlock();
+          }
+          bt->btree_update_internal()
+          // step 3. change the previous leafnode's sibling to new_leafnode 
           page* pre_leafnode  = nullptr;
           int ppi;
           page* pre_parent = bt->btree_search_internal(records[0].key - 1, ppi); // find the previous leafnode
@@ -865,8 +950,9 @@ public:
         // !buflog: create a bufnode for leaf page
         buflog::SortedBufNode* new_bufnode = new buflog::SortedBufNode();
         if (hdr.sibling_ptr != nullptr) {
-          new_bufnode->highkey_ = hdr.sibling_ptr->records[0].key;
+          new_bufnode->highkey_ = hdr.sibling_ptr->records[0].key;          
         }
+        new_bufnode->parentkey_ = split_key;
         btree::bufnode_table_.Put((size_t)sibling, (char*)new_bufnode);
       } 
       else { // internal node
@@ -1424,6 +1510,48 @@ void btree::btree_insert(entry_key_t key, char *right) { // need to be string
     #endif
   }
   
+}
+
+
+
+// update the key pointer in the node at the given level
+void btree::btree_update_internal(entry_key_t key, char *ptr,
+                                  uint32_t level) {
+  if (level > root->hdr.level)
+    return;
+
+  page *p = this->root;
+
+  page* parent = nullptr;
+  int pi = -2;
+  while (p->hdr.level > level) {
+    parent = p;
+    p = (page *)p->linear_search(key, pi);
+  }
+
+  if (!p->update(key, ptr, true)) {
+    btree_update_internal(key, ptr, level);
+  }
+}
+
+
+
+// update the key pointer in the node at the given level
+void btree::btree_update_prev_sibling(entry_key_t key, char *ptr) {
+ 
+  page *p = this->root;
+
+  page* parent = nullptr;
+  int pi = -2;
+
+  // find the leaf node
+  while (p->hdr.leftmost_ptr != nullptr) {
+    p = (page *)p->linear_search(key, pi);
+  }
+
+  if (!p->update_sibling(key, ptr, true)) {
+    btree_update_prev_sibling(key, ptr);
+  }
 }
 
 // store the key into the node at the given level

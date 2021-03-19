@@ -532,6 +532,7 @@ public:
     SortedBufNode () {
         memset(this, 0, 64);
         highkey_ = -1;
+        parentkey_ = -1;
     }
     
     inline void Lock(void) {
@@ -699,7 +700,7 @@ public:
 
     void Print() {
         auto iter = Begin();
-        printf("High key: %ld. Valid key: ", highkey_);
+        printf("High key: %ld. Parent: %ld, Valid key: ", highkey_, parentkey_);
         while (iter.Valid()) {
             printf("%u, ", iter->key);
             iter++;
@@ -710,7 +711,7 @@ public:
     std::string ToStringValid() {
         char buf[1024];
         auto iter = Begin();
-        sprintf(buf, "High key: %ld. Valid key: ", highkey_);
+        printf("High key: %ld. Parent: %ld, Valid key: ", highkey_, parentkey_);
         while (iter.Valid()) {
             sprintf(buf + strlen(buf),"%u, ", iter->key);
             iter++;
@@ -816,7 +817,7 @@ public:
     char            tags_[13];   
     signed char     seqs_[13];   // 32 bytes
     int64_t         highkey_;    // 40 bytes
-    int64_t         none_;       // 48 bytes
+    int64_t         parentkey_;  // 48 bytes
     KV              kvs_[13];    // 256 bytes    
 };
 

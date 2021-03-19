@@ -1,5 +1,5 @@
 #include "src/buflog.h"
-
+#include "FAST_FAIR/btree.h"
 #include "gtest/gtest.h"
 
 using namespace buflog;
@@ -131,6 +131,18 @@ TEST(SortedBufNode, MaskLastN) {
     printf("bufnode after  mask: %s\n", buf_node.ToStringValid().c_str());
     printf("%s\n", buf_node.ToString().c_str());
 }
+
+
+TEST(Btree, Update) {
+    page new_page;
+    int num = 0;
+    new_page.insert_key(1, (char*)1, &num, false);
+    new_page.printAll();
+
+    new_page.insert_key(1, (char*)2, &num, false);
+    new_page.printAll();
+}
+
 
 int main(int argc, char *argv[])
 {
