@@ -25,7 +25,8 @@
 
 
 inline void BUFLOG_COMPILER_FENCE() {
-    asm volatile("" : : : "memory"); /* Compiler fence. */
+    std::atomic_thread_fence(std::memory_order_release);
+    // asm volatile("" : : : "memory"); /* Compiler fence. */
 }
 
 
@@ -551,8 +552,8 @@ public:
         for (int i = count - n; i < count; ++i) {
             mask |= (1 << seqs_[i]);
         }
-        meta_.valid_ &= (~mask);
-        ClearBufNodeFull();
+        meta_.valid_ &= ((~mask) & kBitMapMask);    
+        BUFLOG_COMPILER_FENCE();
     }
 
     inline BitSet MatchBitSet(uint8_t hash) {
@@ -619,8 +620,6 @@ public:
             // new insertion
             if (valid_count == kBufNodeFull) {
                 // full of records
-                SetBufNodeFull();
-                BUFLOG_COMPILER_FENCE();
                 return false;
             } 
         }
@@ -707,6 +706,17 @@ public:
         }
         printf("\n");
     }
+
+    std::string ToStringValid() {
+        char buf[1024];
+        auto iter = Begin();
+        sprintf(buf, "High key: %ld. Valid key: ", highkey_);
+        while (iter.Valid()) {
+            sprintf(buf + strlen(buf),"%u, ", iter->key);
+            iter++;
+        }
+        return buf;
+    }
     
     class IteratorSorted {
     public:
@@ -754,38 +764,36 @@ public:
     public:
         Iterator(SortedBufNode* node) :
             node_(node),
-            i_(0),
-            i_end_(node->ValidCount()) {
+            bitset_(node->meta_.valid_) {
         }
 
         inline bool Valid(void) {
-            return i_ < i_end_;
+            return bitset_.operator bool();
         }
 
         KV& operator*() const {
-            return node_->kvs_[i_];
+            return node_->kvs_[*bitset_];
         }
 
         KV* operator->() const {
-            return &node_->kvs_[i_];
+            return &node_->kvs_[*bitset_];
         }
 
         // Prefix ++ overload 
         inline Iterator& operator++() { 
-            i_++;
+            ++bitset_;
             return *this; 
         }
 
         // Postfix ++ overload 
         inline Iterator operator++(int) { 
             auto tmp = *this;
-            i_++;
+            ++bitset_;
             return tmp; 
         }
     private:
         SortedBufNode* node_;
-        int i_;
-        int i_end_;
+        BitSet bitset_;
     };
     
     Iterator Begin() {
@@ -794,19 +802,6 @@ public:
 
     friend class Iterator;
     friend class IteratorSorted;
-
-
-    inline void SetBufNodeFull(void) {
-        full_ = 1;
-    }
-
-    inline bool isBufNodeFull(void) {
-        return full_ == 1;
-    }
-
-    inline void ClearBufNodeFull(void) {
-        full_ = 0;
-    }
 
 public:
     union Meta{

@@ -8,7 +8,7 @@ set(CMAKE_CXX_COMPILER "clang++")
 # set the project name
 project (index VERSION 0.0.1 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # default using release mode

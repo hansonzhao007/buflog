@@ -18,6 +18,7 @@
 
 #include "FAST_FAIR/btree_pmem_buflog.h"
 // #include "FAST_FAIR/btree_pmem.h"
+// #include "FAST_FAIR/btree.h"
 
 #include "test_util.h"
 #include "histogram.h"
@@ -396,6 +397,7 @@ public:
             } else if (name == "readrandom") {
                 fresh_db = false;
                 key_trace_->Randomize();
+                thread = 1;
                 method = &Benchmark::DoRead;                
             } else if (name == "readnon") {
                 fresh_db = false;

@@ -37,10 +37,49 @@ const size_t FASTFAIR_PMEM_DATALOG_SIZE = ((16LU << 30));
 // buflog
 #include "src/buflog.h"
 
+// #define BUFLOG_DEBUG
+
+static inline std::string BUFLOG_CMD(const std::string& content) {
+    std::array<char, 128> buffer;
+    std::string result;
+    auto cmd = "echo '" + content + "' >> buflog.log";
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+    if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
+
+#define BUFLOG_LOG(M)\
+do {\
+    std::ostringstream ss;\
+    ss << M;\
+    BUFLOG_CMD(ss.str());\
+} while(0);
+
+#define __FILENAME__ ((strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__))
+
+#ifdef BUFLOG_DEBUG
+#define BUFLOG_INFO(M, ...)\
+do {\
+    char buffer[1024] = "[ INFO] ";\
+    sprintf(buffer + 8, "[%s %s:%d] ", __FILENAME__, __FUNCTION__, __LINE__);\
+    sprintf(buffer + strlen(buffer), M, ##__VA_ARGS__);\
+    BUFLOG_LOG(buffer);\
+} while(0);
+#else
+#define BUFLOG_INFO(M, ...)\
+do {\
+} while(0);
+#endif
+
 
 #define CONFIG_BUFNODE
 // #define CONFIG_OUT_OF_PLACE_MERGE
-// #define CONFIG_DRAM_INNER
+#define CONFIG_DRAM_INNER
 
 #define PAGESIZE 512
 #define PAGESIZE_BUFNODE 256
@@ -776,6 +815,8 @@ public:
       int m = (int)ceil(num_entries / 2);
       entry_key_t split_key = records[m].key;
 
+      BUFLOG_INFO("Split at leafnode 0x%lx. Split key: %ld", this, split_key);
+
       // migrate half of keys into the sibling
       int sibling_cnt = 0;
       if (hdr.leftmost_ptr == nullptr) { // leaf node
@@ -785,11 +826,10 @@ public:
             sibling->insert_key(records[i].key, records[i].ptr, &sibling_cnt,
                                 false);
           }
-          // printf("no buf entry\n");
+          BUFLOG_INFO("No entries in bufnode: 0x%lx", bufnode);
         }
         else { // both bufnode and leafnode entries
-          int buf_i = 0, leaf_i = 0, total_i = 0;
-          int mid_i = (num_entries + bufnode_entries) / 2;
+          int buf_i = 0;
           bufnode->Sort();
           auto buf_iter = bufnode->sBegin();
           // buf pointer to the key that is >= split_key
@@ -801,21 +841,25 @@ public:
           for (int i = m; i < num_entries; ++i) {
             sibling->insert_key(records[i].key, records[i].ptr, &sibling_cnt,
                                 false);
+            BUFLOG_INFO("Merge leafnode %ld to sibling: 0x%lx", records[i].key, sibling);
           }
           
           while (buf_iter.Valid()) {
             if (hdr.sibling_ptr != nullptr && hdr.sibling_ptr->records[0].key < buf_iter->key) {
-              printf("Merge error.\n");
+              BUFLOG_INFO("Merge error.\n");
             }
             sibling->insert_key(buf_iter->key, 
                                 buf_iter->val, 
                                 &sibling_cnt,
                                 false);
+            BUFLOG_INFO("Merge bufnode %ld to sibling: 0x%lx", buf_iter->key, sibling);
             buf_iter++;
           }
-          bufnode->MaskLastN(bufnode_entries - buf_i);
-          // set high key
           bufnode->highkey_ = split_key;
+          BUFLOG_INFO("Bufnode 0x%lx valid before: %s", bufnode, bufnode->ToStringValid().c_str());
+          bufnode->MaskLastN(bufnode_entries - buf_i);          
+          BUFLOG_INFO("Bufnode 0x%lx valid remain: %s", bufnode, bufnode->ToStringValid().c_str());
+          BUFLOG_INFO("Bufnode entry %ld, leafnode entry %d, buf_i: %d, split m: %ld", bufnode_entries, num_entries, buf_i, m);          
         }
         
         // !buflog: create a bufnode for leaf page
@@ -1201,9 +1245,11 @@ btree* CreateBtree(void) {
   btree_root->root = root;
   btree_root->datalog_addr_ = reinterpret_cast<char*>(RP_malloc(FASTFAIR_PMEM_DATALOG_SIZE));
   btree::datalog_.Create(btree_root->datalog_addr_, FASTFAIR_PMEM_DATALOG_SIZE);
+  #ifdef CONFIG_BUFNODE
    // !buflog: create a bufnode for leaf page
   buflog::SortedBufNode* new_bufnode = new buflog::SortedBufNode();                              
   btree::bufnode_table_.Put((size_t)buf, (char*)new_bufnode);
+  #endif
   return btree_root;
 }
 
@@ -1337,10 +1383,6 @@ void btree::btree_insert(entry_key_t key, char *right) { // need to be string
       p = (page *)p->linear_search(key, pi);
     }
   }
-  // while (p->hdr.leftmost_ptr != nullptr) {
-  //   parent = p;
-  //   p = (page *)p->linear_search(key, pi);
-  // }
 
   #ifdef CONFIG_BUFNODE
   // insert to bufnode without touching leafnode
@@ -1350,14 +1392,9 @@ void btree::btree_insert(entry_key_t key, char *right) { // need to be string
     bufnode = reinterpret_cast<buflog::SortedBufNode*>(iter->second());
     bufnode->Lock();
     highkey = bufnode->highkey_;
-    if (highkey > 0 && key >= highkey) {      
-      // page* sibl = p->hdr.sibling_ptr;
-      // if (sibl->records[0].key != highkey) {
-      //   printf("high key not equal to sibling's smallest key\n");
-      //   exit(1);
-      // }
+    if (highkey > 0 && key >= highkey) {
       bufnode->Unlock();
-      // split just happened, do not use bufnode, insert directly
+      // split just happened, do not use bufnode, insert directly so we cen go to the correct leafnode
       bufnode = nullptr;
     }
     else {
@@ -1512,13 +1549,14 @@ void btree::printAll(int level = 0) {
       if (sibling->hdr.level == 0) {
         total_keys += sibling->hdr.last_index + 1;
       }
+      
+      sibling->print();
       auto iter = btree::bufnode_table_.Find(size_t(sibling));
       if (iter != nullptr) {
         auto bufnode = reinterpret_cast<buflog::SortedBufNode*>(iter->second());
-        printf("%s\n", bufnode->ToString().c_str());
+        printf("bufnode 0x%lx, %s\n", bufnode, bufnode->ToString().c_str());
         bufnode->Print();
       }
-      sibling->print();
       sibling = sibling->hdr.sibling_ptr;
     }
     

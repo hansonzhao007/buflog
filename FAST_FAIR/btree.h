@@ -925,6 +925,17 @@ btree::btree() {
   height = 1;
 }
 
+void DistroyBtree(void) {
+}
+
+btree* CreateBtree(void) {
+  return new btree();
+}
+
+btree* RecoverBtree(void) {
+  return new btree();
+}
+
 void btree::setNewRoot(char *new_root) {
   this->root = (char *)new_root;
   clflush((char *)&(this->root), sizeof(char *));

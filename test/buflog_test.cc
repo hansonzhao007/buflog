@@ -112,6 +112,26 @@ TEST(SortedBufNode, PutGet) {
 }
 
 
+TEST(SortedBufNode, MaskLastN) {
+    SortedBufNode buf_node;
+
+    char val[128] = "value 123";
+    for (int i = 12; i > 0; i--) {
+        bool res = buf_node.Put(i, val);
+        EXPECT_TRUE(res);
+    }
+    
+    buf_node.Sort();
+
+    printf("%s\n", buf_node.ToString().c_str());
+    printf("bufnode before mask: %s\n", buf_node.ToStringValid().c_str());
+
+    buf_node.MaskLastN(5);
+
+    printf("bufnode after  mask: %s\n", buf_node.ToStringValid().c_str());
+    printf("%s\n", buf_node.ToString().c_str());
+}
+
 int main(int argc, char *argv[])
 {
     ::testing::InitGoogleTest(&argc, argv);
