@@ -1627,7 +1627,7 @@ public:
 
 public:
     static constexpr int kSizeVecCount = 1 << 4;
-    explicit TurboHashTable(uint32_t bucket_count = 64 << 10, uint32_t cell_count = 32):
+    explicit TurboHashTable(uint32_t bucket_count = 128 << 10, uint32_t cell_count = 32):
         bucket_count_(bucket_count),
         bucket_mask_(bucket_count - 1),
         capacity_( bucket_count * cell_count * (CellMeta256V2::SlotCount() - 1) ),
@@ -2133,6 +2133,11 @@ private:
 
             FindSlotForInsertResult res = findSlotForInsert(key, partial_hash);
 
+            // // TODO: use thread_local variable to improve write performance
+            // if (!res.target_slot.equal_key) {
+            //     size_.fetch_add(1, std::memory_order_relaxed); // size + 1
+            // }
+
             // find a valid slot in target cell
             if (res.find) { 
                 char* cell_addr = locateCell({res.target_slot.bucket, res.target_slot.cell});
@@ -2145,11 +2150,6 @@ private:
                     // If the new slot from 'findSlotForInsert' is not occupied, insert directly
 
                     insertToSlotAndRecycle(hash_value, key, value, cell_addr, res.target_slot); // update slot content (including pointer and H1), H2 and bitmap
-
-                    // TODO: use thread_local variable to improve write performance
-                    // if (!res.target_slot.equal_key) {
-                    //     size_.fetch_add(1, std::memory_order_relaxed); // size + 1
-                    // }
 
                     return true;
                 } else if (res.target_slot.equal_key) {
@@ -2174,6 +2174,7 @@ private:
                     if (empty_bitset.validCount() > 1) {
                         res.target_slot.slot = *empty_bitset;
                         insertToSlotAndRecycle(hash_value, key, value, cell_addr, res.target_slot);
+                        
                         return true;
                     }
 

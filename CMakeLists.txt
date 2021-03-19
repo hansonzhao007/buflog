@@ -62,13 +62,13 @@ if(CMAKE_COMPILER_IS_GNUCXX)
     execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpversion
                     OUTPUT_VARIABLE GCC_VERSION)
     if(GCC_VERSION VERSION_GREATER 7.5 OR GCC_VERSION VERSION_EQUAL 7.5)
-        set(CMAKE_CXX_FLAGS "-Wall -Wextra ") #-Wpedantic")
+        set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic")
     else(GCC_VERSION VERSION_GREATER 7.5 OR GCC_VERSION VERSION_EQUAL 7.5)
-        set(CMAKE_CXX_FLAGS "-Wall -Wextra ") # -pedantic")
+        set(CMAKE_CXX_FLAGS "-Wall -Wextra  -pedantic")
     endif(GCC_VERSION VERSION_GREATER 7.5 OR GCC_VERSION VERSION_EQUAL 7.5)
 endif(CMAKE_COMPILER_IS_GNUCXX)
 if(CMAKE_CXX_COMPILER MATCHES "clang")
-    set(CMAKE_CXX_FLAGS "-Wall -Wextra")
+    set(CMAKE_CXX_FLAGS "-Wall -Wextra -pedantic")
 endif(CMAKE_CXX_COMPILER MATCHES "clang")
 
 

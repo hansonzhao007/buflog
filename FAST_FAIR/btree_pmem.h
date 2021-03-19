@@ -594,7 +594,7 @@ public:
       page* buf = reinterpret_cast<page*>(RP_malloc(sizeof(page)));
       page* root = new (buf) page(hdr.level);
       page *sibling = root;
-       int m = (int)ceil(num_entries / 2);
+      int m = (int)ceil(num_entries / 2);
       entry_key_t split_key = records[m].key;
 
       // migrate half of keys into the sibling

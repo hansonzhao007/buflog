@@ -481,6 +481,43 @@ private:
 
 } // end of namespace linkedredolog
 
+
+// https://rigtorp.se/spinlock/
+class AtomicSpinLock {
+public:
+    std::atomic<bool> lock_ = {0};
+
+    void inline lock() noexcept {
+        for (;;) {
+        // Optimistically assume the lock is free on the first try
+        if (!lock_.exchange(true, std::memory_order_acquire)) {
+            return;
+        }
+        // Wait for lock to be released without generating cache misses
+        while (lock_.load(std::memory_order_relaxed)) {
+            // Issue X86 PAUSE or ARM YIELD instruction to reduce contention between
+            // hyper-threads
+            __builtin_ia32_pause();
+        }
+        }
+    }
+
+    bool inline is_locked(void) noexcept {
+        return lock_.load(std::memory_order_relaxed);
+    }
+
+    bool inline try_lock() noexcept {
+        // First do a relaxed load to check if lock is free in order to prevent
+        // unnecessary cache misses if someone does while(!try_lock())
+        return !lock_.load(std::memory_order_relaxed) &&
+            !lock_.exchange(true, std::memory_order_acquire);
+    }
+
+    void inline unlock() noexcept {
+        lock_.store(false, std::memory_order_release);
+    }
+}; // end of class AtomicSpinLock
+
 struct KV {
     int64_t  key;
     char*    val;
@@ -488,15 +525,26 @@ struct KV {
 
 class SortedBufNode {
 public:
-    static constexpr uint16_t kBitMapMask = 0x3FFF;
+    static constexpr uint16_t kBufNodeFull = 12;
+    static constexpr uint16_t kBitMapMask = 0x1FFF;
 
     SortedBufNode () {
         memset(this, 0, 64);
+        highkey_ = -1;
+    }
+    
+    inline void Lock(void) {
+        lock_.lock();
+    }
+
+    inline void Unlock(void) {
+        lock_.unlock();
     }
 
     inline void Reset(void) {
-        memset(this, 0, 64);
+        meta_.data_ = 0;
     }
+    
     inline void MaskLastN(int n) {
         uint16_t mask = 0;
         int count = ValidCount();
@@ -504,6 +552,7 @@ public:
             mask |= (1 << seqs_[i]);
         }
         meta_.valid_ &= (~mask);
+        ClearBufNodeFull();
     }
 
     inline BitSet MatchBitSet(uint8_t hash) {
@@ -568,8 +617,10 @@ public:
         int valid_count = ValidCount();
         if (old_pos == -1) {
             // new insertion
-            if (valid_count == 13) {
+            if (valid_count == kBufNodeFull) {
                 // full of records
+                SetBufNodeFull();
+                BUFLOG_COMPILER_FENCE();
                 return false;
             } 
         }
@@ -581,7 +632,6 @@ public:
         kvs_[insert_pos].key = key;
         kvs_[insert_pos].val = val;
         tags_[insert_pos]    = tag;
-        BUFLOG_COMPILER_FENCE();
 
         // atomicly set the meta
         Meta new_meta = meta_;
@@ -591,6 +641,8 @@ public:
             new_meta.valid_ ^= (1 << old_pos);
         }
         new_meta.deleted_ = meta_.deleted_ & (~(1 << insert_pos));
+
+        BUFLOG_COMPILER_FENCE();
         meta_.data_ = new_meta.data_;
         return true;
     }
@@ -644,6 +696,16 @@ public:
                 str_seqs.c_str(),
                 str_kvs.c_str());
         return buf;
+    }
+
+    void Print() {
+        auto iter = Begin();
+        printf("High key: %ld. Valid key: ", highkey_);
+        while (iter.Valid()) {
+            printf("%u, ", iter->key);
+            iter++;
+        }
+        printf("\n");
     }
     
     class IteratorSorted {
@@ -733,6 +795,19 @@ public:
     friend class Iterator;
     friend class IteratorSorted;
 
+
+    inline void SetBufNodeFull(void) {
+        full_ = 1;
+    }
+
+    inline bool isBufNodeFull(void) {
+        return full_ == 1;
+    }
+
+    inline void ClearBufNodeFull(void) {
+        full_ = 0;
+    }
+
 public:
     union Meta{
         struct {
@@ -740,10 +815,14 @@ public:
             uint16_t    deleted_;
         };
         uint32_t data_;
-    } meta_;
-    char        tags_[14];
-    signed char seqs_[14];
-    KV          kvs_[14];
+    } meta_;                 // 4 bytes
+    AtomicSpinLock  lock_; 
+    uint8_t         full_;       
+    char            tags_[13];   
+    signed char     seqs_[13];   // 32 bytes
+    int64_t         highkey_;    // 40 bytes
+    int64_t         none_;       // 48 bytes
+    KV              kvs_[13];    // 256 bytes    
 };
 
 static_assert(sizeof(SortedBufNode) == 256, "SortBufNode is not 256 byte");

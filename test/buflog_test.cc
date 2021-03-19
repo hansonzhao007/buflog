@@ -47,8 +47,9 @@ TEST(DataLog, DramIterator) {
 TEST(SortedBufNode, PutGet) {
     SortedBufNode buf_node;
 
+
     char val[128] = "value 123";
-    for (int i = 13; i > 0; i--) {
+    for (int i = 12; i > 0; i--) {
         bool res = buf_node.Put(i, val);
         EXPECT_TRUE(res);
     }
@@ -57,26 +58,26 @@ TEST(SortedBufNode, PutGet) {
     EXPECT_FALSE(res);
     buf_node.Sort();
     printf("%s\n", buf_node.ToString().c_str());
-    EXPECT_EQ(13, buf_node.ValidCount());
+    EXPECT_EQ(12, buf_node.ValidCount());
 
     char* tmp = nullptr;
-    for (int i = 13; i > 0; i--) {
+    for (int i = 12; i > 0; i--) {
         bool res = buf_node.Get(i, tmp);
         EXPECT_TRUE(res);
     }
 
-    for (int i = 13; i > 0; i--) {
+    for (int i = 12; i > 0; i--) {
         bool res = buf_node.Put(i, val);
         EXPECT_TRUE(res);
     }
 
     tmp = nullptr;
-    for (int i = 13; i > 0; i--) {
+    for (int i = 12; i > 0; i--) {
         bool res = buf_node.Get(i, tmp);
         EXPECT_TRUE(res);
     }
 
-    EXPECT_EQ(13, buf_node.ValidCount());
+    EXPECT_EQ(12, buf_node.ValidCount());
     printf("%s\n", buf_node.ToString().c_str());
 
     EXPECT_TRUE(buf_node.Delete(10));
@@ -92,7 +93,7 @@ TEST(SortedBufNode, PutGet) {
     EXPECT_TRUE(buf_node.Delete(4));
     EXPECT_FALSE(buf_node.Delete(4));
     
-    EXPECT_EQ(10, buf_node.ValidCount());
+    EXPECT_EQ(9, buf_node.ValidCount());
     printf("%s\n", buf_node.ToString().c_str());
 
     buf_node.Sort();
