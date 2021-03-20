@@ -491,6 +491,18 @@ public:
     return true;
   }
 
+
+  inline void update_key(entry_key_t key, char* ptr) {
+    int num = count();
+    for (int i = 0; i < num; ++i) {
+      if (key == records[i].key) {
+        records[i].ptr = ptr;
+        clflush((char*)&records[i].ptr, 8);
+        break;
+      }
+    }
+  }
+  
   inline void insert_key(entry_key_t key, char *ptr, int *num_entries,
                          bool flush = true, bool update_last_index = true) {
     // update switch_counter

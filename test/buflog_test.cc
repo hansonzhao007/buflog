@@ -139,7 +139,7 @@ TEST(Btree, Update) {
     new_page.insert_key(1, (char*)1, &num, false);
     new_page.printAll();
 
-    new_page.insert_key(1, (char*)2, &num, false);
+    new_page.update_key(1, (char*)2);
     new_page.printAll();
 }
 

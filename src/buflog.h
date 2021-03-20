@@ -16,6 +16,8 @@
 
 #include <libpmem.h>
 
+#include "logger.h"
+
 // ralloc
 #include "ralloc.hpp"
 #include "pptr.hpp"
@@ -711,7 +713,7 @@ public:
     std::string ToStringValid() {
         char buf[1024];
         auto iter = Begin();
-        printf("High key: %ld. Parent: %ld, Valid key: ", highkey_, parentkey_);
+        sprintf(buf, "High key: %ld. Parent: %ld, Valid key: ", highkey_, parentkey_);
         while (iter.Valid()) {
             sprintf(buf + strlen(buf),"%u, ", iter->key);
             iter++;
