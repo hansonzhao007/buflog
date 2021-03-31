@@ -31,7 +31,7 @@
 // ralloc
 #include "ralloc.hpp"
 #include "pptr.hpp"
-const size_t FASTFAIR_PMEM_SIZE = ((32LU << 30));
+const size_t FASTFAIR_PMEM_SIZE = ((100LU << 30));
 const size_t FASTFAIR_PMEM_DATALOG_SIZE = ((16LU << 30));
 
 // buflog
@@ -59,8 +59,8 @@ do {\
 
 
 #define CONFIG_BUFNODE
-// #define CONFIG_OUT_OF_PLACE_MERGE
-// #define CONFIG_DRAM_INNER
+#define CONFIG_OUT_OF_PLACE_MERGE
+#define CONFIG_DRAM_INNER
 
 #define PAGESIZE 512
 #define PAGESIZE_BUFNODE 256
