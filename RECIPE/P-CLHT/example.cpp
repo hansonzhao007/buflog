@@ -69,6 +69,7 @@ void run(char **argv) {
 
     {
         // Load
+        printf("size of bucket: %d\n", sizeof(bucket_t));
         auto starttime = std::chrono::system_clock::now();
         next_thread_id.store(0);
         auto func = [&]() {
