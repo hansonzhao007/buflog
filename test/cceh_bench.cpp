@@ -16,7 +16,7 @@
 #include <algorithm>
 #include <bitset>
 
-#include "CCEH.h"
+#include "CCEH_buflog.h"
 
 #include "cceh_util.h"
 #include "histogram.h"

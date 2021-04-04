@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <libpmemobj.h>
 #include "util.h"
+#include "../../src/buflog.h"
 
 #define TOID_ARRAY(x) TOID(x)
 
@@ -55,6 +56,7 @@ struct Segment{
 	}
 	local_depth = 0;
 	sema = 0;
+	bufnode_ = new buflog::SortedBufNode();
     }
 
     void initSegment(size_t depth){
@@ -63,6 +65,7 @@ struct Segment{
 	}
 	local_depth = depth;
 	sema = 0;
+	bufnode_ = new buflog::SortedBufNode();
     }
 
     bool suspend(void){
@@ -108,6 +111,7 @@ struct Segment{
     Pair bucket[kNumSlot];
     int64_t sema = 0;
     size_t local_depth;	
+	buflog::SortedBufNode* bufnode_;
 };
 
 struct Directory{
@@ -160,9 +164,9 @@ struct Directory{
     }
 
     void initDirectory(size_t _depth){
-	depth = _depth;
-	capacity = pow(2, _depth);
-	sema = 0;
+		depth = _depth;
+		capacity = pow(2, _depth);
+		sema = 0;
     }
 };
 
@@ -174,9 +178,11 @@ class CCEH{
 	void initCCEH(PMEMobjpool*, size_t);
 
 	void Insert(PMEMobjpool*, Key_t&, Value_t);
+	void insert(PMEMobjpool*, Key_t&, Value_t);
 	bool InsertOnly(PMEMobjpool*, Key_t&, Value_t);	
 	bool Delete(Key_t&);
 	Value_t Get(Key_t&);
+	Value_t get(Key_t&);
 	Value_t FindAnyway(Key_t&);
 
 	double Utilization(void);

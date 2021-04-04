@@ -44,6 +44,8 @@ find_library(TbbLib tbb)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mrtm -mcx16 -mavx -mavx2 -mbmi2 -mlzcnt")
 add_definitions(-DADD_PADDING)
 
+add_definitions(-DBUFLOG)
+
 # # add Intel PCM library
 # add_custom_command( OUTPUT libPCM.a
 #                     COMMAND make lib -j8
@@ -116,6 +118,7 @@ include_directories(
   "/usr/local/include"
   "${PROJECT_SOURCE_DIR}"
   "${PROJECT_SOURCE_DIR}/lib"
+  "${PROJECT_SOURCE_DIR}/CCEH/src"
 )
 
 # add system local lib
@@ -123,7 +126,7 @@ link_directories(/usr/lib)
 link_directories(/usr/local/lib)
 link_directories("${PROJECT_SOURCE_DIR}/lib/")
 
-list(APPEND THIRDPARTY_LIBS pmem vmem pmemobj util)
+list(APPEND THIRDPARTY_LIBS pmem vmem pmemobj util cceh)
 
 # all the binary will be in the build folder
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
@@ -169,5 +172,5 @@ foreach(tlib ${THIRDPARTY_LIBS})
 endforeach()
 
 # The add_subdirectory will add CMakeLists.txt under src and tests into your project.
-# add_subdirectory(util)
+add_subdirectory(CCEH/src)
 add_subdirectory(test)

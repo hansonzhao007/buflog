@@ -2,6 +2,7 @@
 
 #include <assert.h>
 
+namespace util {
 /** Slice
  *  @note: Derived from LevelDB. the data is stored in the *data_
 */
@@ -93,4 +94,6 @@ inline bool operator==(const Slice& x, const Slice& y) {
 
 inline bool operator!=(const Slice& x, const Slice& y) {
     return !(x == y);
+}
+
 }

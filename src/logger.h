@@ -1,5 +1,7 @@
 #pragma once
 
+#ifndef __LOGGER_H
+#define __LOGGER_H
 #include <sys/time.h>
 
 #include <cassert>
@@ -122,7 +124,7 @@ class PosixLogger{
   std::FILE* const fp_;
 };
 
-void Log(PosixLogger* info_log, const char* format, ...) {
+inline void Log(PosixLogger* info_log, const char* format, ...) {
     if (info_log != nullptr) {
         va_list ap;
         va_start(ap, format);
@@ -131,7 +133,7 @@ void Log(PosixLogger* info_log, const char* format, ...) {
     }
 }
 
-PosixLogger* NewLogger(const std::string& filename) {
+inline PosixLogger* NewLogger(const std::string& filename) {
     std::FILE* fp = std::fopen(filename.c_str(), "w");
     if (fp == nullptr) {
         return nullptr;
@@ -182,3 +184,6 @@ do {\
   sprintf(buffer + strlen(buffer), M, ##__VA_ARGS__);\
   Log(logger_, "%s", buffer);\
 } while(0);
+
+
+#endif

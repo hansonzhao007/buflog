@@ -34,7 +34,7 @@ inline void BUFLOG_COMPILER_FENCE() {
 
 namespace buflog {
 
-std::string print_binary(uint16_t bitmap) {
+inline std::string print_binary(uint16_t bitmap) {
     char buffer[1024];
     static std::string bit_rep[16] = {
         "0000", "0001", "0010", "0011",
@@ -225,8 +225,8 @@ public:
         return reinterpret_cast<DataLogNodeMeta*>(next_);
     }
 
-    inline Slice Data(void) {
-        return Slice((char*)(this) - data_size_, data_size_);
+    inline util::Slice Data(void) {
+        return util::Slice((char*)(this) - data_size_, data_size_);
     }
 
     inline bool Valid(void) {
@@ -340,7 +340,7 @@ public:
         return log_cur_tail_;
     }
 
-    inline char* Append(Slice entry, DataLogNodePtr next, uint8_t checksum, bool is_pmem) {
+    inline char* Append(util::Slice entry, DataLogNodePtr next, uint8_t checksum, bool is_pmem) {
         int total_size = sizeof(log_data_size) + entry.size() + sizeof(DataLogNodeMeta);
         size_t off = log_cur_tail_.fetch_add(total_size, std::memory_order_relaxed);
         char* addr = log_start_addr_ + off;
@@ -557,6 +557,10 @@ public:
         }
         meta_.valid_ &= ((~mask) & kBitMapMask);    
         BUFLOG_COMPILER_FENCE();
+    }
+
+    inline void Invalid(uint16_t valid_mask) {
+        meta_.valid_ &= (~valid_mask);
     }
 
     inline BitSet MatchBitSet(uint8_t hash) {

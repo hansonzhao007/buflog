@@ -1,0 +1,39 @@
+key trace size: 50000000
+Randomize the trace...------------------------------------------------
+HashType:              CCEH
+Init Capacity:         16777216
+Entries:               50000000
+Trace size:            50000000
+Read:                  1000000 
+Write:                 1000000 
+Thread:                8 
+Report interval:       0 s
+Stats interval:        10000000 records
+benchmarks:            load,readrandom
+------------------------------------------------
+[32mStart IPMWatcher for load
+[0mthread  7, between 43750000 - 50000000
+thread  1, between 6250000 - 12500000
+thread  5, between 31250000 - 37500000
+thread  2, between 12500000 - 18750000
+thread  4, between 25000000 - 31250000
+thread  0, between 0 - 6250000
+thread  6, between 37500000 - 43750000
+thread  3, between 18750000 - 25000000
+load         :       0.230 micros/op 4.140731 Mops/s;
+[34mDIMM0 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       8997.20 |        4311.55 |    21441.48 |     14928.98 |   2.38 |   3.46 |[0m
+[34mDIMM1 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       5448.79 |        2388.39 |    10257.49 |      7050.07 |   1.88 |   2.95 |[0m
+[34m*SUM* | DIMM-R:  2752.5 MB/s. User-R:  1254.4 MB/s   | DIMM-W:  1908.5 MB/s, User-W:   581.8 MB/s. Time:  11.52s.[0m
+[32mDestroy IPMWatcher.
+[0m
+Randomize the trace...[32mStart IPMWatcher for readrandom
+[0mreadrandom   :       0.208 micros/op 4.594153 Mops/s; (num: 1000000, not find: 0)
+[34mDIMM0 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       1567.76 |         405.71 |     3915.62 |      1696.55 |   2.50 |   4.18 |[0m
+[34mDIMM1 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |        816.43 |           0.02 |     1581.90 |         1.77 |   1.94 | 106.62 |[0m
+[34m*SUM* | DIMM-R:  3309.4 MB/s. User-R:  1435.2 MB/s   | DIMM-W:  1022.3 MB/s, User-W:   244.2 MB/s. Time:   1.66s.[0m
+[32mDestroy IPMWatcher.
+[0m
