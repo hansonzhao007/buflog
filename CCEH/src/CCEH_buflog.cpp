@@ -222,7 +222,7 @@ retry:
 			auto& kv = *iter;
 			Key_t key = kv.key;
 			Value_t val = kv.val;
-			insert(pop, key, val);
+			insert(pop, key, val, false);
 			iter++;
 		}
 		D_RW(target)->bufnode_->Reset();
@@ -231,7 +231,7 @@ retry:
 	}
 }
 
-void CCEH::insert(PMEMobjpool* pop, Key_t& key, Value_t value){
+void CCEH::insert(PMEMobjpool* pop, Key_t& key, Value_t value, bool with_lock){
     auto f_hash = hash_funcs[0](&key, sizeof(Key_t), f_seed);
     auto f_idx = (f_hash & kMask) * kNumPairPerCacheLine;
 
@@ -240,19 +240,21 @@ RETRY:
     auto target = D_RO(D_RO(dir)->segment)[x];
 
     if(!D_RO(target)){
-	std::this_thread::yield();
-	goto RETRY;
+		std::this_thread::yield();
+		goto RETRY;
     }
     
-    /* acquire segment exclusive lock */
-    if(!D_RW(target)->lock()){
-	std::this_thread::yield();
-	goto RETRY;
-    }
+	if (with_lock) {
+		/* acquire segment exclusive lock */
+		if(!D_RW(target)->lock()){
+		std::this_thread::yield();
+		goto RETRY;
+		}
+	}
 
     auto target_check = (f_hash >> (8*sizeof(f_hash) - D_RO(dir)->depth));
     if(D_RO(target) != D_RO(D_RO(D_RO(dir)->segment)[target_check])){
-	D_RW(target)->unlock();
+	if (with_lock) D_RW(target)->unlock();
 	std::this_thread::yield();
 	goto RETRY;
     }
@@ -264,14 +266,14 @@ RETRY:
 	/* validity check for entry keys */
 	if((((hash_funcs[0](&D_RO(target)->bucket[loc].key, sizeof(Key_t), f_seed) >> (8*sizeof(f_hash)-D_RO(target)->local_depth)) != pattern) || (D_RO(target)->bucket[loc].key == INVALID)) && (D_RO(target)->bucket[loc].key != SENTINEL)){
 
-	    if(CAS(&D_RW(target)->bucket[loc].key, &_key, SENTINEL)){
-		D_RW(target)->bucket[loc].value = value;
-		mfence();
-		D_RW(target)->bucket[loc].key = key;
-		pmemobj_persist(pop, (char*)&D_RO(target)->bucket[loc], sizeof(Pair));
-		/* release segment exclusive lock */
-		D_RW(target)->unlock();
-		return;
+	    if(CAS(&D_RW(target)->bucket[loc].key, &_key, SENTINEL)) {
+			D_RW(target)->bucket[loc].value = value;
+			mfence();
+			D_RW(target)->bucket[loc].key = key;
+			pmemobj_persist(pop, (char*)&D_RO(target)->bucket[loc], sizeof(Pair));
+			/* release segment exclusive lock */
+			if (with_lock) D_RW(target)->unlock();
+			return;
 	    }
 	}
     }
@@ -284,12 +286,12 @@ RETRY:
 	auto _key = D_RO(target)->bucket[loc].key;
 	if((((hash_funcs[0](&D_RO(target)->bucket[loc].key, sizeof(Key_t), f_seed) >> (8*sizeof(s_hash)-D_RO(target)->local_depth)) != pattern) || (D_RO(target)->bucket[loc].key == INVALID)) && (D_RO(target)->bucket[loc].key != SENTINEL)){
 	    if(CAS(&D_RW(target)->bucket[loc].key, &_key, SENTINEL)){
-		D_RW(target)->bucket[loc].value = value;
-		mfence();
-		D_RW(target)->bucket[loc].key = key;
-		pmemobj_persist(pop, (char*)&D_RO(target)->bucket[loc], sizeof(Pair));
-		D_RW(target)->unlock();
-		return;
+			D_RW(target)->bucket[loc].value = value;
+			mfence();
+			D_RW(target)->bucket[loc].key = key;
+			pmemobj_persist(pop, (char*)&D_RO(target)->bucket[loc], sizeof(Pair));
+			if (with_lock) D_RW(target)->unlock();
+			return;
 	    }
 	}
     }
@@ -297,11 +299,11 @@ RETRY:
     auto target_local_depth = D_RO(target)->local_depth;
     // COLLISION !!
     /* need to split segment but release the exclusive lock first to avoid deadlock */
-    D_RW(target)->unlock();
+    if (with_lock) D_RW(target)->unlock();
 
-    if(!D_RW(target)->suspend()){
-	std::this_thread::yield();
-	goto RETRY;
+    if(with_lock && !D_RW(target)->suspend()){
+		std::this_thread::yield();
+		goto RETRY;
     }
 
     /* need to check whether the target segment has been split */
