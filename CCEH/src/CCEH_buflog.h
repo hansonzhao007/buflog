@@ -108,8 +108,8 @@ struct Segment{
     void execute_path(std::vector<std::pair<size_t, size_t>>&, Pair);
     size_t numElement(void);
 
-    Pair bucket[kNumSlot];
-    int64_t sema = 0;
+    Pair bucket[kNumSlot];    
+	int64_t sema = 0;
     size_t local_depth;	
 	buflog::SortedBufNode* bufnode_;
 };

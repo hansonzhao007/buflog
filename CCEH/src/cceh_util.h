@@ -217,6 +217,11 @@ public:
             dimm_write_,
             app_write_,
             duration_);  
+        printf("App Read: %7.1f MB, Raw Read: %7.1f MB, App Write: %7.1f MB, Raw Write: %7.1f MB\n", 
+        metric_merge.GetByteReadFromIMC() / 1024.0/1024.0,
+        metric_merge.GetByteReadToDIMM() / 1024.0/1024.0,
+        metric_merge.GetByteWriteFromIMC() / 1024.0 / 1024.0,
+        metric_merge.GetByteWriteToDIMM() / 1024.0/1024.0);
         printf("\033[32mDestroy IPMWatcher.\n\033[0m\n");
         fflush(nullptr);
     }
