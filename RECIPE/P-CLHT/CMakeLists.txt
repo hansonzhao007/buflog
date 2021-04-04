@@ -40,7 +40,7 @@ find_package (Threads)
 
 set(P_CLHT_TEST example.cpp src/clht_lb_res.c src/clht_gc.c
     external/sspfd/sspfd.c external/ssmem/src/ssmem.c)
-add_executable(example ${P_CLHT_TEST})
+add_executable(test_pclht_test ${P_CLHT_TEST})
 
-target_link_libraries(example ${TbbLib} ${JemallocLib} boost_system
-    boost_thread pthread pmemobj pmem)
+target_link_libraries(test_pclht_test ${TbbLib} ${JemallocLib} boost_system
+    boost_thread pthread)

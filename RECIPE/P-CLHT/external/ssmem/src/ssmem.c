@@ -36,8 +36,6 @@
 #include <assert.h>
 #include <string.h>
 
-#include <libpmemobj.h>
-
 ssmem_ts_t* ssmem_ts_list = NULL;
 volatile uint32_t ssmem_ts_list_len = 0;
 __thread volatile ssmem_ts_t* ssmem_ts_local = NULL;
@@ -544,8 +542,7 @@ ssmem_mem_reclaim(ssmem_allocator_t* a)
 	  do
 	    {
 	      rel_cur = rel_nxt;
-          PMEMoid cur_mem_oid = pmemobj_oid((void *)rel_cur->mem);
-          pmemobj_free(&cur_mem_oid);
+	      free(rel_cur->mem);
 	      free(rel_cur);
 	      rel_nxt = rel_nxt->next;
 	    }

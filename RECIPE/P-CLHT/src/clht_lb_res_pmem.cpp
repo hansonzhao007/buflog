@@ -30,7 +30,6 @@
 
 #include <math.h>
 #include <stdlib.h>
-#include <malloc.h>
 #include <string.h>
 #include <stdbool.h>
 #include <sys/types.h>
@@ -38,6 +37,11 @@
 #include <emmintrin.h>
 
 #include "clht_lb_res.h"
+
+// ralloc
+#include "ralloc.hpp"
+#include "pptr.hpp"
+const size_t CLHT_PMEM_SIZE = ((100LU << 30));
 
 //#define CLHTDEBUG
 //#define CRASH_AFTER_SWAP_CLHT
@@ -181,9 +185,9 @@ static inline void movnt64(uint64_t *dest, uint64_t const src, bool front, bool 
 /* Create a new bucket. */
     bucket_t*
 clht_bucket_create() 
-{
+{    
     bucket_t* bucket = NULL;
-    bucket = (bucket_t *) memalign(CACHE_LINE_SIZE, sizeof(bucket_t));
+    bucket = (bucket_t *) RP_malloc(sizeof(bucket_t));
     if (bucket == NULL)
     {
         return NULL;
@@ -219,17 +223,29 @@ clht_hashtable_t* clht_hashtable_create(uint64_t num_buckets);
     clht_t* 
 clht_create(uint64_t num_buckets)
 {
-    clht_t* w = (clht_t*) memalign(CACHE_LINE_SIZE, sizeof(clht_t));
-    if (w == NULL)
-    {
-        printf("** malloc @ hatshtalbe\n");
-        return NULL;
+    printf("******** Ralloc P-CLHT *********\n");
+    bool res = RP_init("clht", CLHT_PMEM_SIZE);
+    clht_t* clht_root = nullptr;
+    if (res) {    
+        clht_root = RP_get_root<clht_t>(0);
+        int recover_res = RP_recover();
+        if (recover_res == 1) {
+            printf("Ralloc Dirty open, recover\n");
+        } else {                
+            printf("Ralloc Clean restart\n");
+        }
+    } else {
+        printf("Ralloc Clean create\n");
     }
-
+    clht_root = (clht_t*)RP_malloc(sizeof(clht_t));
+    RP_set_root(clht_root, 0);
+    clht_t* w = clht_root;
+    
     w->ht = clht_hashtable_create(num_buckets);
     if (w->ht == NULL)
     {
-        free(w);
+        printf("Create hash table fail\n");
+        exit(1);
         return NULL;
     }
     w->resize_lock = LOCK_FREE;
@@ -257,19 +273,18 @@ clht_hashtable_create(uint64_t num_buckets)
     }
 
     /* Allocate the table itself. */
-    hashtable = (clht_hashtable_t*) memalign(CACHE_LINE_SIZE, sizeof(clht_hashtable_t));
+    hashtable = (clht_hashtable_t*) RP_malloc(sizeof(clht_hashtable_t));
     if (hashtable == NULL)
     {
         printf("** malloc @ hatshtalbe\n");
         return NULL;
     }
 
-    /* hashtable->table = calloc(num_buckets, (sizeof(bucket_t))); */
-    hashtable->table = (bucket_t*) memalign(CACHE_LINE_SIZE, num_buckets * (sizeof(bucket_t)));
+    hashtable->table = (bucket_t*) RP_malloc(num_buckets * (sizeof(bucket_t)));
     if (hashtable->table == NULL) 
     {
-        printf("** alloc: hashtable->table\n"); fflush(stdout);
-        free(hashtable);
+        printf("** alloc: hashtable->table fail\n"); fflush(stdout);
+        exit(1);
         return NULL;
     }
 

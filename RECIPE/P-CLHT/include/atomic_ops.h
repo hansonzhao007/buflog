@@ -149,64 +149,64 @@ uint8_t oldval;
 
 #  include <xmmintrin.h>
 
-//Swap pointers
-static inline void* swap_pointer(volatile void* ptr, void *x) {
-#  ifdef __i386__
-   __asm__ __volatile__("xchgl %0,%1"
-        :"=r" ((unsigned) x)
-        :"m" (*(volatile unsigned *)ptr), "0" (x)
-        :"memory");
+// //Swap pointers
+// static inline void* swap_pointer(volatile void* ptr, void *x) {
+// #  ifdef __i386__
+//    __asm__ __volatile__("xchgl %0,%1"
+//         :"=r" ((unsigned) x)
+//         :"m" (*(volatile unsigned *)ptr), "0" (x)
+//         :"memory");
 
-  return x;
-#  elif defined(__x86_64__)
-  __asm__ __volatile__("xchgq %0,%1"
-        :"=r" ((unsigned long long) x)
-        :"m" (*(volatile long long *)ptr), "0" ((unsigned long long) x)
-        :"memory");
+//   return x;
+// #  elif defined(__x86_64__)
+//   __asm__ __volatile__("xchgq %0,%1"
+//         :"=r" ((unsigned long long) x)
+//         :"m" (*(volatile long long *)ptr), "0" ((unsigned long long) x)
+//         :"memory");
 
-  return x;
-#  endif
-}
+//   return x;
+// #  endif
+// }
 
 //Swap uint64_t
 static inline uint64_t swap_uint64(volatile uint64_t* target,  uint64_t x) {
   __asm__ __volatile__("xchgq %0,%1"
-        :"=r" ((uint64_t) x)
-        :"m" (*(volatile uint64_t *)target), "0" ((uint64_t) x)
+        :"=r" (x)
+        :"m" (*(volatile uint64_t *)target), "0" (x)
         :"memory");
 
   return x;
 }
 
-//Swap uint32_t
-static inline uint32_t swap_uint32(volatile uint32_t* target,  uint32_t x) {
-  __asm__ __volatile__("xchgl %0,%1"
-        :"=r" ((uint32_t) x)
-        :"m" (*(volatile uint32_t *)target), "0" ((uint32_t) x)
-        :"memory");
+// //Swap uint32_t
+// static inline uint32_t swap_uint32(volatile uint32_t* target,  uint32_t x) {
+//   __asm__ __volatile__("xchgl %0,%1"
+//         :"=r" ((uint32_t) x)
+//         :"m" (*(volatile uint32_t *)target), "0" ((uint32_t) x)
+//         :"memory");
 
-  return x;
-}
+//   return x;
+// }
 
-//Swap uint16_t
-static inline uint16_t swap_uint16(volatile uint16_t* target,  uint16_t x) {
-  __asm__ __volatile__("xchgw %0,%1"
-        :"=r" ((uint16_t) x)
-        :"m" (*(volatile uint16_t *)target), "0" ((uint16_t) x)
-        :"memory");
+// //Swap uint16_t
+// static inline uint16_t swap_uint16(volatile uint16_t* target,  uint16_t x) {
+//   __asm__ __volatile__("xchgw %0,%1"
+//         :"=r" ((uint16_t) x)
+//         :"m" (*(volatile uint16_t *)target), "0" ((uint16_t) x)
+//         :"memory");
 
-  return x;
-}
+//   return x;
+// }
 
-//Swap uint8_t
-static inline uint8_t swap_uint8(volatile uint8_t* target,  uint8_t x) {
-  __asm__ __volatile__("xchgb %0,%1"
-        :"=r" ((uint8_t) x)
-        :"m" (*(volatile uint8_t *)target), "0" ((uint8_t) x)
-        :"memory");
+// //Swap uint8_t
+// static inline uint8_t swap_uint8(volatile uint8_t* target,  uint8_t x) {
+//   __asm__ __volatile__("xchgb %0,%1"
+//         :"=r" ((uint8_t) x)
+//         :"m" (*(volatile uint8_t *)target), "0" ((uint8_t) x)
+//         :"memory");
 
-  return x;
-}
+//   return x;
+// }
 
 //test-and-set uint8_t
 static inline uint8_t tas_uint8(volatile uint8_t *addr) {
