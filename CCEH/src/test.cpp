@@ -1,22 +1,27 @@
-#include "src/CCEH.h"
-#include <unistd.h>
+#include <cstdio>
+#include <ctime>
 #include <cstdlib>
-#include <algorithm>
-#include <fstream>
+#include <unistd.h>
 #include <iostream>
+#include <fstream>
+#include <algorithm>
 #include <thread>
 #include <vector>
-#include <ctime>
+#include <bitset>
 
+#include "src/CCEH.h"
 using namespace std;
 
-void clear_cache(){
+
+#define POOL_SIZE (10737418240) // 10GB
+
+void clear_cache() {
     int* dummy = new int[1024*1024*256];
-    for(int i=0; i<1024*1024*256; i++){
+    for (int i=0; i<1024*1024*256; i++) {
 	dummy[i] = i;
     }
 
-    for(int i=100; i<1024*1024*256-100; i++){
+    for (int i=100;i<1024*1024*256;i++) {
 	dummy[i] = dummy[i-rand()%100] + dummy[i+rand()%100];
     }
 
@@ -24,125 +29,175 @@ void clear_cache(){
 }
 
 
-int main(int argc, char* argv[]){
-    const size_t initialTableSize = 16*1024;
-    size_t numData = atoi(argv[1]);
+int main (int argc, char* argv[])
+{
+	int sds_write_value = 0;
+	pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
+	
+    if(argc < 3){
+	cerr << "Usage: " << argv[0] << "path numData" << endl;
+	exit(1);
+    }
+    const size_t initialSize = 1024*16;
+    char path[32];
+    strcpy(path, argv[1]);
+    int numData = atoi(argv[2]);
 #ifdef MULTITHREAD
-    size_t numThreads = atoi(argv[2]);
+    int numThreads = atoi(argv[3]);
 #endif
-
     struct timespec start, end;
-    uint64_t* keys = (uint64_t*)malloc(sizeof(uint64_t)*numData);
+    uint64_t elapsed;
+    PMEMobjpool* pop;
+    bool exists = false;
+    TOID(CCEH) HashTable = OID_NULL;
+
+    if(access(path, 0) != 0){
+		pop = pmemobj_create(path, "CCEH", POOL_SIZE, 0666);
+		if(!pop){
+			perror("pmemoj_create");
+			exit(1);
+		}
+		HashTable = POBJ_ROOT(pop, CCEH);
+		D_RW(HashTable)->initCCEH(pop, initialSize);
+    }
+    else{
+		pop = pmemobj_open(path, "CCEH");
+		if(pop == NULL){
+			perror("pmemobj_open");
+			exit(1);
+	}
+	HashTable = POBJ_ROOT(pop, CCEH);
+	if(D_RO(HashTable)->crashed){
+	    D_RW(HashTable)->Recovery(pop);
+	}
+	exists = true;
+    }
+
+#ifdef MULTITHREAD
+    cout << "Params: numData(" << numData << "), numThreads(" << numThreads << ")" << endl;
+#else
+    cout << "Params: numData(" << numData << ")" << endl;
+#endif
+    uint64_t* keys = new uint64_t[numData];
 
     ifstream ifs;
     string dataset = "/home/chahg0129/dataset/input_rand.txt";
     ifs.open(dataset);
-    if(!ifs){
-	cerr << "no file" << endl;
-	return 0;
+    if (!ifs){
+	cerr << "No file." << endl;
+	exit(1);
     }
-
-    cout << dataset << " is used" << endl;
-    for(int i=0; i<numData; i++){
-	ifs >> keys[i];
+    else{
+	for(int i=0; i<numData; i++)
+	    ifs >> keys[i];
+	ifs.close();
+	cout << dataset << " is used." << endl;
     }
-    cout << "Reading dataset Completed" << endl;
+#ifndef MULTITHREAD // single-threaded
+    if(!exists){
+	{ // INSERT
+	    cout << "Start Insertion" << endl;
+	    clear_cache();
+	    clock_gettime(CLOCK_MONOTONIC, &start);
+	    for(int i=0; i<numData; i++){
+		D_RW(HashTable)->Insert(pop, keys[i], reinterpret_cast<Value_t>(keys[i]));
+	    }
+	    clock_gettime(CLOCK_MONOTONIC, &end);
 
-    
-    Hash* table = new CCEH(initialTableSize/Segment::kNumSlot);
-    cout << "Hashtable Initialized" << endl;
-
-#ifndef MULTITHREAD
-    cout << "Start Insertion" << endl;
-    clear_cache();
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    for(int i=0; i<numData; i++){
-	table->Insert(keys[i], reinterpret_cast<Value_t>(keys[i]));
-    }
-    clock_gettime(CLOCK_MONOTONIC, &end);
-
-    cout << "NumData(" << numData << ")" << endl;
-    uint64_t elapsed = end.tv_nsec - start.tv_nsec + (end.tv_sec - start.tv_sec)*1000000000;
-    cout << "Insertion: " << elapsed/1000 << " usec\t" << (uint64_t)(1000000*(numData/(elapsed/1000.0))) << " ops/sec" << endl;
-
-    cout << "Start Search" << endl;
-    clear_cache();
-    int failedSearch = 0;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    for(int i=0; i<numData; i++){
-	auto ret = table->Get(keys[i]);
-	if(ret != reinterpret_cast<Value_t>(keys[i]))
-	    failedSearch++;
-    }
-    clock_gettime(CLOCK_MONOTONIC, &end);
-
-    elapsed = end.tv_nsec - start.tv_nsec + (end.tv_sec - start.tv_sec)*1000000000;
-    cout << "Search: " << elapsed/1000 << " usec\t" << (uint64_t)(1000000*(numData/(elapsed/1000.0))) << " ops/sec" << endl;
-    cout << "failedSearch: " << failedSearch << endl;
-#else
-    vector<thread> insertingThreads;
-    vector<thread> searchingThreads;
-    vector<int> failed(numThreads);
-
-    auto insert = [&table, &keys](int from, int to){
-	for(int i=from; i<to; i++){
-	    table->Insert(keys[i], reinterpret_cast<Value_t>(keys[i]));
+	    elapsed = (end.tv_sec - start.tv_sec)*1000000000 + (end.tv_nsec - start.tv_nsec);
+	    cout << elapsed/1000 << "\tusec\t" << (uint64_t)(1000000*(numData/(elapsed/1000.0))) << "\tOps/sec\tInsertion" << endl;
 	}
-    };
-    
-    auto search = [&table, &keys, &failed](int from, int to, int tid){
-	int fail = 0;
-	for(int i=from; i<to; i++){
-	    auto ret = table->Get(keys[i]);
+    }
+
+    { // SEARCH
+	cout << "Start Searching" << endl;
+	clear_cache();
+	int failedSearch = 0;
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	for(int i=0; i<numData; i++){
+	    auto ret = D_RW(HashTable)->Get(keys[i]);
 	    if(ret != reinterpret_cast<Value_t>(keys[i])){
-		fail++;
+		failedSearch++;
 	    }
 	}
-	failed[tid] = fail;
-    };
-
-    cout << "Start Insertion" << endl;
-    clear_cache();
-    const size_t chunk = numData/numThreads;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    for(int i=0; i<numThreads; i++){
-	if(i != numThreads-1)
-	    insertingThreads.emplace_back(thread(insert, chunk*i, chunk*(i+1)));
-	else
-	    insertingThreads.emplace_back(thread(insert, chunk*i, numData));
+	clock_gettime(CLOCK_MONOTONIC, &end);
+	elapsed = (end.tv_sec - start.tv_sec)*1000000000 + (end.tv_nsec - start.tv_nsec);
+	cout << elapsed/1000 << "\tusec\t" << (uint64_t)(1000000*(numData/(elapsed/1000.0))) << "\tOps/sec\tSearch" << endl;
+	cout << "Failed Search: " << failedSearch << endl;
     }
 
-    for(auto& t: insertingThreads) t.join();
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    cout << "NumData(" << numData << "), numThreads(" << numThreads << ")" << endl;
-    uint64_t elapsed = end.tv_nsec - start.tv_nsec + (end.tv_sec - start.tv_sec)*1000000000;
-    cout << "Insertion: " << elapsed/1000 << " usec\t" << (uint64_t)(1000000*(numData/(elapsed/1000.0))) << " ops/sec" << endl;
+#else // multi-threaded
+    vector<thread> insertingThreads;
+    vector<thread> searchingThreads;
+    int chunk_size = numData/numThreads;
 
-    cout << "Start Search" << endl;
-    clear_cache();
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    for(int i=0; i<numThreads; i++){
-	if(i != numThreads-1)
-	    searchingThreads.emplace_back(thread(search, chunk*i, chunk*(i+1), i));
-	else
-	    searchingThreads.emplace_back(thread(search, chunk*i, numData, i));
+    if(!exists){
+	{ // INSERT
+	    auto insert = [&pop, &HashTable, &keys](int from, int to){
+		for(int i=from; i<to; i++){
+		    D_RW(HashTable)->Insert(pop, keys[i], reinterpret_cast<Value_t>(keys[i]));
+		}
+	    };
+
+	    cout << "Start Insertion" << endl;
+	    clear_cache();
+	    clock_gettime(CLOCK_MONOTONIC, &start);
+	    for(int i=0; i<numThreads; i++){
+		if(i != numThreads-1)
+		    insertingThreads.emplace_back(thread(insert, chunk_size*i, chunk_size*(i+1)));
+		else
+		    insertingThreads.emplace_back(thread(insert, chunk_size*i, numData));
+	    }
+
+	    for(auto& t: insertingThreads) t.join();
+	    clock_gettime(CLOCK_MONOTONIC, &end);
+
+	    elapsed = (end.tv_sec - start.tv_sec)*1000000000 + (end.tv_nsec - start.tv_nsec);
+	    cout << elapsed/1000 << "\tusec\t" << (uint64_t)(1000000*(numData/(elapsed/1000.0))) << "\tOps/sec\tInsertion" << endl;
+	}
     }
 
-    for(auto& t: searchingThreads) t.join();
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    elapsed = end.tv_nsec - start.tv_nsec + (end.tv_sec - start.tv_sec)*1000000000;
-    cout << "Search: " << elapsed/1000 << " usec\t" << (uint64_t)(1000000*(numData/(elapsed/1000.0))) << " ops/sec" << endl;
+    { // SEARCH
+	int failedSearch = 0;
+	vector<int> searchFailed(numThreads);
 
+	auto search = [&pop, &HashTable, &keys, &searchFailed](int from, int to, int tid){
+	    int fail_cnt = 0;
+	    for(int i=from; i<to; i++){
+		auto ret = D_RW(HashTable)->Get(keys[i]);
+		if(ret != reinterpret_cast<Value_t>(keys[i])){
+		    fail_cnt++;
+		}
+	    }
+	    searchFailed[tid] = fail_cnt;
+	};
 
-    int failedSearch = 0;
-    for(auto& v: failed) failedSearch += v;
-    cout << failedSearch << " failedSearch" << endl;
+	cout << "Start Search" << endl;
+	clear_cache();
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	for(int i=0; i<numThreads; i++){
+	    if(i != numThreads-1)
+		searchingThreads.emplace_back(thread(search, chunk_size*i, chunk_size*(i+1), i));
+	    else
+		searchingThreads.emplace_back(thread(search, chunk_size*i, numData, i));
+	}
+
+	for(auto& t: searchingThreads) t.join();
+	clock_gettime(CLOCK_MONOTONIC, &end);
+
+	elapsed = (end.tv_sec - start.tv_sec)*1000000000 + (end.tv_nsec - start.tv_nsec);
+	cout << elapsed/1000 << "\tusec\t" << (uint64_t)(1000000*(numData/(elapsed/1000.0))) << "\tOps/sec\tSearch" << endl;
+
+	for(auto& v: searchFailed) failedSearch += v;
+	cout << "Search Failed: " << failedSearch << endl;
+    }
 #endif
 
-    auto util = table->Utilization();
-    auto cap = table->Capacity();
+    auto util = D_RW(HashTable)->Utilization();
+    cout << "Utilization: " << util << " %" << endl;
 
-    cout << "Util( " << util << " ), Capacity( " << cap << " )" << endl;
+    D_RW(HashTable)->crashed = false;
+    pmemobj_persist(pop, (char*)&D_RO(HashTable)->crashed, sizeof(bool));
+    pmemobj_close(pop);
     return 0;
-}
-
+} 

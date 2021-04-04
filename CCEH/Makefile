@@ -1,36 +1,24 @@
-CXX := g++
-CFLAGS := -std=c++17 -I./ -lrt -lpthread -O3
+.PHONY: all clean
 
-all: ALL_CCEH Cuckoo LinearProbing Extendible Level Path
+CXX := g++ -O3 -std=c++17
+CFLAGS := -I./ -lrt
 
-ALL_CCEH: CCEH_MSB CCEH_LSB
+all: test ycsb
 
-test: src/test.cpp CCEH_MSB
-	$(CXX) $(CFLAGS) -o bin/single_threaded_cceh src/test.cpp src/CCEH_MSB.o
-	$(CXX) $(CFLAGS) -o bin/multi_threaded_cceh src/test.cpp src/CCEH_MSB.o -lpthread -DMULTITHREAD
+ycsb: src/ycsb_bench.cpp CCEH
+	$(CXX) $(CFLAGS) -o ycsb_bench src/ycsb_bench.cpp src/CCEH.o -lpmemobj -lpmem -lpthread -lgflags -DMULTITHREAD
 
-CCEH_MSB: src/CCEH.h src/CCEH_MSB.cpp
-	$(CXX) $(CFLAGS) -c -o src/CCEH_MSB.o src/CCEH_MSB.cpp -DINPLACE
-	$(CXX) $(CFLAGS) -c -o src/CCEH_MSB_CoW.o src/CCEH_MSB.cpp
+test: src/test.cpp CCEH
+	$(CXX) $(CFLAGS) -o bin/single_threaded_cceh src/test.cpp src/CCEH.o -lpmemobj -lpmem
+	$(CXX) $(CFLAGS) -o bin/multi_threaded_cceh src/test.cpp src/CCEH.o -lpmemobj -lpmem -lpthread -DMULTITHREAD
+	$(CXX) $(CFLAGS) -o bin/single_threaded_ccehCoW src/test.cpp src/CCEH_CoW.o -lpmemobj -lpmem
+	$(CXX) $(CFLAGS) -o bin/multi_threaded_ccehCoW src/test.cpp src/CCEH_CoW.o -lpmemobj -lpmem -lpthread -DMULTITHREAD
+
+CCEH: src/CCEH.h src/CCEH.cpp
+	$(CXX) $(CFLAGS) -c -o src/CCEH.o src/CCEH.cpp -DINPLACE -lpmemobj -lpmem
+	$(CXX) $(CFLAGS) -c -o src/CCEH_CoW.o src/CCEH.cpp -lpmemobj -lpmem
 	
-CCEH_LSB: src/CCEH.h src/CCEH_LSB.cpp
-	$(CXX) $(CFLAGS) -c -o src/CCEH_LSB.o src/CCEH_LSB.cpp -DINPLACE
-	$(CXX) $(CFLAGS) -c -o src/CCEH_LSB_CoW.o src/CCEH_LSB.cpp
 
-Cuckoo: src/cuckoo_hash.cpp src/cuckoo_hash.h
-	$(CXX) $(CFLAGS) -c src/cuckoo_hash.cpp -o src/cuckoo_hash.o
-
-LinearProbing: src/linear_probing.cpp src/linear_probing.h
-	$(CXX) $(CFLAGS) -c src/linear_probing.cpp -o src/linear_probing.o
-
-Extendible: src/extendible_hash.cpp src/extendible_hash.h
-	$(CXX) $(CFLAGS) -c src/extendible_hash.cpp -o src/extendible_hash.o
-
-Level: src/Level_hashing.cpp src/Level_hashing.h
-	$(CXX) $(CFLAGS) -c src/Level_hashing.cpp -o src/Level_hashing.o
-
-Path: src/path_hashing.cpp src/path_hashing.hpp
-	$(CXX) $(CFLAGS) -c src/path_hashing.cpp -o src/path_hashing.o
 
 clean:
-	rm -rf src/*.o bin/*
+	rm -rf src/*.o bin/* 
