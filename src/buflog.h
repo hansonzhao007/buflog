@@ -824,11 +824,19 @@ public:
     signed char     seqs_[13];   // 32 bytes
     int64_t         highkey_;    // 40 bytes
     int64_t         parentkey_;  // 48 bytes
-    KV              kvs_[13];    // 256 bytes    
+    KV              kvs_[13];    // 256 bytes
 };
 
 static_assert(sizeof(SortedBufNode) == 256, "SortBufNode is not 256 byte");
 
+class BufNode128 {
+public:
+
+
+private:
+
+
+};
 
 }; // end of namespace buflog
 

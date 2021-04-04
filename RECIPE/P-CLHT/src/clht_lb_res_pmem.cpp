@@ -77,6 +77,7 @@ __thread size_t check_ht_status_steps = CLHT_STATUS_INVOK_IN;
 #endif
 */
 
+#define __tile__
     const char*
 clht_type_desc()
 {
@@ -321,15 +322,15 @@ clht_hashtable_create(uint64_t num_buckets)
 
 
 /* Hash a key for a particular hash table. */
-    uint64_t
+    inline uint64_t
 clht_hash(clht_hashtable_t* hashtable, clht_addr_t key) 
 {
     /* uint64_t hashval; */
-    /* return __ac_Jenkins_hash_64(key) & (hashtable->hash); */
+    return __ac_Jenkins_hash_64(key) & (hashtable->hash);
     /* return hashval % hashtable->num_buckets; */
     /* return key % hashtable->num_buckets; */
     /* return key & (hashtable->num_buckets - 1); */
-    return key & (hashtable->hash);
+    // return key & (hashtable->hash);
 }
 
 
