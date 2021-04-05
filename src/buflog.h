@@ -18,10 +18,6 @@
 
 #include "logger.h"
 
-// ralloc
-#include "ralloc.hpp"
-#include "pptr.hpp"
-
 #define BUFLOG_FLUSH(addr) asm volatile ("clwb (%0)" :: "r"(addr))
 #define BUFLOG_FLUSHFENCE asm volatile ("sfence" ::: "memory")
 

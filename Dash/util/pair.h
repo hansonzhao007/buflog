@@ -19,7 +19,7 @@ const Value_t DEFAULT = reinterpret_cast<Value_t>(1);
 /*variable length key*/
 struct string_key{
     int length;
-    char key[0];
+    char* key;
 };
 
 struct Pair {

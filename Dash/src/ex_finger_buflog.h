@@ -24,6 +24,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../../src/buflog.h"
+
 #include "../util/hash.h"
 #include "../util/pair.h"
 #include "Hash.h"
@@ -664,13 +666,14 @@ struct Table {
     ptr->local_depth = depth;
     ptr->next = pp;
     *tbl = pmemobj_oid(ptr);
+    ptr->bufnode = new buflog::SortedBufNode();
 #else
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::pair<size_t, PMEMoid> *>(arg);
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
-      table_ptr->state = -3; /*NEW*/
+      table_ptr->state = -3; /*NEW*/      
       memset(&table_ptr->lock_bit, 0, sizeof(PMEMmutex) * 2);
 
       int sumBucket = kNumBucket + stashBucket;
@@ -684,13 +687,14 @@ struct Table {
     };
     std::pair callback_para(depth, pp);
     Allocator::Allocate(tbl, kCacheLineSize, sizeof(Table<T>), callback,
-                        reinterpret_cast<void *>(&callback_para));
+                        reinterpret_cast<void *>(&callback_para));    
 #endif
 #else
     Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
     (*tbl)->local_depth = depth;
     (*tbl)->next = pp;
 #endif
+    
   };
   ~Table(void) {}
 
@@ -719,7 +723,7 @@ struct Table {
   }
 
   int Insert(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
-             Directory<T> **);
+             Directory<T> **);        
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
   void Insert4splitWithCheck(T key, Value_t value, size_t key_hash,
                              uint8_t meta_hash); /*with uniqueness check*/
@@ -862,7 +866,8 @@ struct Table {
      * influence the correctness*/
   }
 
-  char dummy[48];
+  char dummy[40];
+  buflog::SortedBufNode* bufnode;
   Bucket<T> bucket[kNumBucket + stashBucket];
   size_t local_depth;
   size_t pattern;
@@ -873,7 +878,9 @@ struct Table {
                 bucket (NEW)*/
   PMEMmutex
       lock_bit; /* for the synchronization of the lazy recovery in one segment*/
+  
 };
+
 
 /* it needs to verify whether this bucket has been deleted...*/
 template <class T>
@@ -1302,7 +1309,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   Allocator::Persist(&state, sizeof(state));
   Table<T>::New(&next, local_depth + 1, next);
   Table<T> *next_table = reinterpret_cast<Table<T> *>(pmemobj_direct(next));
-
+  next_table->bufnode = new buflog::SortedBufNode();
   next_table->state = -2;
   Allocator::Persist(&next_table->state, sizeof(next_table->state));
   next_table->bucket
@@ -1484,10 +1491,12 @@ class Finger_EH : public Hash<T> {
   Finger_EH(size_t, PMEMobjpool *_pool);
   ~Finger_EH(void);
   inline int Insert(T key, Value_t value);
+  inline int insert(T key, Value_t value);
   int Insert(T key, Value_t value, bool);
   inline bool Delete(T);
   bool Delete(T, bool);
   inline Value_t Get(T);
+  inline Value_t get(T);
   Value_t Get(T key, bool is_in_epoch);
   void TryMerge(uint64_t);
   void Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b);
@@ -1610,12 +1619,14 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
   dir->_[initCap - 1]->pattern = initCap - 1;
   dir->_[initCap - 1]->state = 0;
+  dir->_[initCap - 1]->bufnode = new buflog::SortedBufNode();
   /* Initilize the Directory*/
   for (int i = initCap - 2; i >= 0; --i) {
     Table<T>::New(&ptr, dir->global_depth, ptr);
     dir->_[i] = (Table<T> *)pmemobj_direct(ptr);
     dir->_[i]->pattern = i;
     dir->_[i]->state = 0;
+    dir->_[i]->bufnode = new buflog::SortedBufNode();
   }
   dir->depth_count = initCap;
 }
@@ -1903,8 +1914,46 @@ int Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
   return Insert(key, value);
 }
 
+// !buflog
 template <class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
+  uint64_t key_hash;
+  if constexpr (std::is_pointer_v<T>) {
+    key_hash = h(key->key, key->length);
+  } else {
+    key_hash = h(&key, sizeof(key));
+  }
+  auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
+RETRY:
+  auto old_sa = dir;
+  auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
+  auto dir_entry = old_sa->_;
+  Table<T> *target = reinterpret_cast<Table<T> *>(
+      reinterpret_cast<uint64_t>(dir_entry[x]) & tailMask);
+  
+  target->bufnode->Lock();
+  bool res = target->bufnode->Put(key, (char*)value);
+  if (res) {
+    target->bufnode->Unlock();
+    return 0;
+  }
+  else {
+    auto iter = target->bufnode->Begin();
+    while (iter.Valid()) {
+      auto& kv = *iter;
+      Key_t key = kv.key;
+      Value_t val = kv.val;
+      insert(key, value);
+      iter++;
+    }
+    target->bufnode->Reset();
+    target->bufnode->Unlock();
+    goto RETRY;
+  }
+}
+
+template <class T>
+int Finger_EH<T>::insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2025,6 +2074,12 @@ RETRY:
   auto old_entry = dir_entry[x];
   Table<T> *target = reinterpret_cast<Table<T> *>(
       reinterpret_cast<uint64_t>(old_entry) & tailMask);
+      
+  char* val;
+  bool res = target->bufnode->Get(key, val);
+  if (res) {
+    return Value_t(val);
+  } 
 
   if ((reinterpret_cast<uint64_t>(old_entry) & headerMask) != crash_version) {
     recoverTable(&dir_entry[x], key_hash, x, old_sa);
@@ -2137,8 +2192,35 @@ FINAL:
   return NONE;
 }
 
+
 template <class T>
 Value_t Finger_EH<T>::Get(T key) {
+  uint64_t key_hash;
+  if constexpr (std::is_pointer_v<T>) {
+    key_hash = h(key->key, key->length);
+  } else {
+    key_hash = h(&key, sizeof(key));
+  }
+  auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
+RETRY:
+  auto old_sa = dir;
+  auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
+  auto y = BUCKET_INDEX(key_hash);
+  auto dir_entry = old_sa->_;
+  auto old_entry = dir_entry[x];
+  Table<T> *target = reinterpret_cast<Table<T> *>(
+      reinterpret_cast<uint64_t>(old_entry) & tailMask);
+  char* val;
+  bool res = target->bufnode->Get(key, val);
+  if (res) {
+    return Value_t(val);
+  } else {
+    return get(key);
+  }
+}
+
+template <class T>
+Value_t Finger_EH<T>::get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);

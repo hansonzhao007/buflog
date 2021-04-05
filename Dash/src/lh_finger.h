@@ -1962,7 +1962,7 @@ class Linear : public Hash<T> {
   }
   bool TryMerge(uint64_t, Table<T> *);
   void recoverSegment(Table<T> **seg_ptr, size_t, size_t, size_t);
-  void getNumber() {
+  double getNumber() {
     uint64_t count = 0;
     uint64_t prev_length = 0;
     uint64_t after_length = 0;
@@ -2055,6 +2055,7 @@ class Linear : public Hash<T> {
     std::cout << "the local raw sapce utilization = " << (double)count / (Bucket_num * 16) << std::endl;
     std::cout << "the prev_length = " << prev_length << std::endl;
     std::cout << "the after_length = " << after_length << std::endl;
+    return 0;
   }
 
   /**

@@ -107,18 +107,6 @@ TOID(struct Segment)* Segment::Split(PMEMobjpool* pop){
 
     auto pattern = ((size_t)1 << (sizeof(Key_t)*8 - local_depth - 1));
 
-	// !buflog: migrate bufnode items to new segment
-	auto buf_valid = bufnode_->ValidBitSet();
-	uint16_t valid_mask = 0;
-	for (auto i : buf_valid) {
-		valid_mask |= (1 << i);
-		auto f_hash = hash_funcs[0](&bufnode_->kvs_[i].key, sizeof(Key_t), f_seed);
-		Key_t key = (Key_t)bufnode_->kvs_[i].key;
-		Value_t val = (Value_t) bufnode_->kvs_[i].val;
-		D_RW(split[1])->Insert4split(key, val, (f_hash & kMask)*kNumPairPerCacheLine);
-	}
-	bufnode_->Invalid(valid_mask);
-
     for(int i=0; i<kNumSlot; ++i){
 	auto f_hash = hash_funcs[0](&bucket[i].key, sizeof(Key_t), f_seed);
 	if(f_hash & pattern){
@@ -225,7 +213,7 @@ retry:
 			insert(pop, key, val, false);
 			iter++;
 		}
-		D_RW(target)->bufnode_->Reset();
+		D_RW(target)->bufnode_->Reset();		
 		D_RW(target)->bufnode_->Unlock();
 		goto retry;
 	}

@@ -145,7 +145,7 @@ class LevelHashing : public Hash<T> {
       resizing_lock = 0;
     }
   }
-  void getNumber() {
+  double getNumber() {
     std::cout << "Entry Size: " << sizeof(struct Entry<T>) << std::endl;
     std::cout << "Node Size: " << sizeof(struct Node<T>) << std::endl;
     std::cout << "First items " << level_item_num[0] << std::endl;
@@ -156,6 +156,7 @@ class LevelHashing : public Hash<T> {
     std::cout << "Second load factor = "
               << (double)level_item_num[1] / (addr_capacity * ASSOC_NUM / 2)
               << std::endl;
+    return 0;
   }
   size_t Capacity(void) {
     return (addr_capacity + addr_capacity / 2) * ASSOC_NUM;

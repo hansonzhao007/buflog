@@ -1,9 +1,12 @@
+# cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON .. 
 if (POLICY CMP0048)
   cmake_policy(SET CMP0048 NEW)
 endif ()
 
-project(dash)
 cmake_minimum_required(VERSION 3.11)
+
+project(dash VERSION 0.0.1 LANGUAGES C CXX)
+
 include(FetchContent)
 include(ExternalProject)
 
@@ -64,9 +67,12 @@ endif ()
 if (USE_PMEM MATCHES "ON")
   add_executable(test_pmem src/test_pmem.cpp)
   add_executable(example src/example.cpp)
+  add_executable(dash_bench src/dash_bench.cpp)
   target_link_libraries(test_pmem PRIVATE ${libs_to_link})
   target_link_libraries(example PRIVATE ${libs_to_link})
+  target_link_libraries(dash_bench PRIVATE ${libs_to_link})
   add_dependencies(test_pmem PMDK)
   add_dependencies(example PMDK)
+  add_dependencies(dash_bench PMDK)
 else ()
 endif ()
