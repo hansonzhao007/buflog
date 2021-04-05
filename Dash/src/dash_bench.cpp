@@ -21,7 +21,7 @@
 #include "../util/key_generator.hpp"
 #include "../util/uniform.hpp"
 
-#define BUFLOG
+// #define BUFLOG
 
 #ifdef BUFLOG
 #include "ex_finger_buflog.h"

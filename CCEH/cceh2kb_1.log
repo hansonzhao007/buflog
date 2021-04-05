@@ -1,0 +1,55 @@
+key trace size: 50000000
+Randomize the trace...------------------------------------------------
+HashType:              CCEH
+Init Capacity:         2097152
+Entries:               50000000
+Trace size:            50000000
+Read:                  1000000 
+Write:                 1000000 
+Thread:                1 
+Report interval:       0 s
+Stats interval:        10000000 records
+benchmarks:            load,readrandom
+------------------------------------------------
+[32mStart IPMWatcher for load
+[0mthread  0, between 0 - 50000000
+2021/04/05-12:28:25  ... thread 0: (10000000,10000000) ops and ( 1221197.0,1221197.0 ) ops/second in (8.1887,8.1887) seconds
+2021/04/05-12:28:35  ... thread 0: (10000000,20000000) ops and ( 997785.4,1098244.4 ) ops/second in (10.0222,18.2109) seconds
+2021/04/05-12:28:46  ... thread 0: (10000000,30000000) ops and ( 959934.0,1047915.4 ) ops/second in (10.4174,28.6283) seconds
+2021/04/05-12:28:58  ... thread 0: (10000000,40000000) ops and ( 856959.9,992619.3 ) ops/second in (11.6692,40.2974) seconds
+2021/04/05-12:29:08  ... thread 0: (10000000,50000000) ops and ( 969450.5,987897.4 ) ops/second in (10.3151,50.6125) seconds
+load         :       1.012 micros/op 0.942132 Mops/s;
+[34mDIMM0 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       3343.80 |        1357.09 |     6776.98 |      4318.98 |   2.03 |   3.18 |[0m
+[34mDIMM1 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       3341.85 |        1356.87 |     6796.10 |      4328.57 |   2.03 |   3.19 |[0m
+[34mDIMM2 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       3344.27 |        1356.78 |     6763.31 |      4314.11 |   2.02 |   3.18 |[0m
+[34mDIMM3 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       3331.63 |        1347.13 |     6744.83 |      4307.63 |   2.02 |   3.20 |[0m
+[34mDIMM4 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       3328.31 |        1346.88 |     6739.89 |      4310.20 |   2.03 |   3.20 |[0m
+[34mDIMM5 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       3329.57 |        1346.53 |     6720.36 |      4296.53 |   2.02 |   3.19 |[0m
+[34m*SUM* | DIMM-R:   801.0 MB/s. User-R:   395.5 MB/s   | DIMM-W:   511.3 MB/s, User-W:   160.3 MB/s. Time:  50.61s.[0m
+App Read: 20019.4 MB, Raw Read: 40541.5 MB, App Write:  8111.3 MB, Raw Write: 25876.0 MB
+[32mDestroy IPMWatcher.
+[0m
+Randomize the trace...[32mStart IPMWatcher for readrandom
+[0mreadrandom   :       0.785 micros/op 1.215380 Mops/s; (num: 1000000, not find: 0)
+[34mDIMM0 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |         66.93 |          10.12 |      150.51 |        41.35 |   2.25 |   4.09 |[0m
+[34mDIMM1 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |         66.47 |          10.07 |      150.13 |        41.31 |   2.26 |   4.10 |[0m
+[34mDIMM2 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |         66.82 |          10.12 |      150.48 |        41.39 |   2.25 |   4.09 |[0m
+[34mDIMM3 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |         66.45 |          10.11 |      149.89 |        41.31 |   2.26 |   4.09 |[0m
+[34mDIMM4 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |         66.14 |          10.08 |      149.51 |        41.21 |   2.26 |   4.09 |[0m
+[34mDIMM5 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |         66.27 |          10.09 |      149.63 |        41.25 |   2.26 |   4.09 |[0m
+[34m*SUM* | DIMM-R:  1146.9 MB/s. User-R:   508.5 MB/s   | DIMM-W:   315.8 MB/s, User-W:    77.2 MB/s. Time:   0.78s.[0m
+App Read:   399.1 MB, Raw Read:   900.1 MB, App Write:    60.6 MB, Raw Write:   247.8 MB
+[32mDestroy IPMWatcher.
+[0m
