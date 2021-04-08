@@ -17,7 +17,8 @@
 //#define s_seed 0xc70f6907UL
 
 #define INPLACE
-#define WITHOUT_FLUSH
+
+// #define WITHOUT_FLUSH
 
 #define CONFIG_OUT_OF_PLACE_MERGE
 
@@ -103,7 +104,7 @@ bool Segment::Insert4split(Key_t& key, Value_t value, size_t loc){
     return 0;
 }
 
-Segment* Segment::SplitDram(){
+Segment* Segment::SplitDram(WriteBuffer::Iterator& iter){
     Segment* splits = new Segment[2];       
     splits[0].initSegment(local_depth+1); //   old segment
 	splits[1].initSegment(local_depth+1); // split segment
@@ -113,12 +114,50 @@ Segment* Segment::SplitDram(){
     for(int i=0; i < kNumSlot; ++i){
 		auto f_hash = h(&bucket[i].key, sizeof(Key_t));
 		if(f_hash & pattern){
-			splits[1].Insert4split(bucket[i].key, bucket[i].value, (f_hash & kMask) * kNumPairPerCacheLine);
+			if(!splits[1].Insert4split(bucket[i].key, bucket[i].value, (f_hash & kMask) * kNumPairPerCacheLine)) {
+				auto s_hash = hash_funcs[2](&bucket[i].key, sizeof(Key_t), s_seed);
+				if (!splits[1].Insert4split(bucket[i].key, bucket[i].value, (s_hash & kMask)*kNumPairPerCacheLine)) {
+					printf("S hash 1 insert error.\n");
+					INFO("S hash 1 insert error");
+				}
+			}
 		}
 		else{
-			splits[0].Insert4split(bucket[i].key, bucket[i].value, (f_hash & kMask) * kNumPairPerCacheLine);
+			if (!splits[0].Insert4split(bucket[i].key, bucket[i].value, (f_hash & kMask) * kNumPairPerCacheLine)) {
+				auto s_hash = hash_funcs[2](&bucket[i].key, sizeof(Key_t), s_seed);
+				if (!splits[0].Insert4split(bucket[i].key, bucket[i].value, (s_hash & kMask)*kNumPairPerCacheLine)) {
+					printf("S hash 0 insert error.\n");
+					INFO("S hash 0 insert error");
+				}
+			}
 		}
     }
+
+	while (iter.Valid()) {
+		auto& kv = *iter;
+		Key_t key = kv.key;
+		Value_t val = kv.val;
+		auto f_hash = h(&key, sizeof(Key_t));
+		if(f_hash & pattern){
+			if (!splits[1].Insert4split(key, val, (f_hash & kMask) * kNumPairPerCacheLine)) {
+				auto s_hash = hash_funcs[2](&key, sizeof(Key_t), s_seed);
+				if (!splits[1].Insert4split(key, val, (s_hash & kMask) * kNumPairPerCacheLine)) {
+					printf("S hash iter 1 insert error\n");
+					INFO("S hash iter 1 insert error");
+				}
+			}
+		}
+		else {
+			if (!splits[0].Insert4split(key, val, (f_hash & kMask) * kNumPairPerCacheLine)) {
+				auto s_hash = hash_funcs[2](&key, sizeof(Key_t), s_seed);
+				if (!splits[0].Insert4split(key, val, (s_hash & kMask) * kNumPairPerCacheLine)) {
+					printf("S hash iter 0 insert error\n");
+					INFO("S hash iter 0 insert error");
+				}
+			}
+		}
+		++iter;
+	}
 
     return splits;
 }
@@ -136,9 +175,9 @@ TOID(struct Segment)* Segment::Split(PMEMobjpool* pop){
 	auto f_hash = hash_funcs[0](&bucket[i].key, sizeof(Key_t), f_seed);
 	if(f_hash & pattern){
 	    if(!D_RW(split[1])->Insert4split(bucket[i].key, bucket[i].value, (f_hash & kMask)*kNumPairPerCacheLine)){
-		auto s_hash = hash_funcs[2](&bucket[i].key, sizeof(Key_t), s_seed);
-		if(!D_RW(split[1])->Insert4split(bucket[i].key, bucket[i].value, (s_hash & kMask)*kNumPairPerCacheLine)){
-		}
+			auto s_hash = hash_funcs[2](&bucket[i].key, sizeof(Key_t), s_seed);
+			if(!D_RW(split[1])->Insert4split(bucket[i].key, bucket[i].value, (s_hash & kMask)*kNumPairPerCacheLine)){
+			}
 	    }
 	}
     }
@@ -197,16 +236,18 @@ void CCEH::initCCEH(PMEMobjpool* pop, size_t initCap){
  
 void CCEH::Insert(PMEMobjpool* pop, Key_t& key, Value_t value) {
 	auto f_hash = hash_funcs[0](&key, sizeof(Key_t), f_seed);
-    auto f_idx = (f_hash & kMask) * kNumPairPerCacheLine;
-	auto x = (f_hash >> (8*sizeof(f_hash) - D_RO(dir)->depth));
+	
 retry:
+	auto x = (f_hash >> (8*sizeof(f_hash) - D_RO(dir)->depth));
     auto target = D_RO(D_RO(dir)->segment)[x];
-	if(!D_RO(target)){
-		std::this_thread::yield();
-		goto retry;
-    }
 	auto target_ptr = D_RW(target);
+	
 	target_ptr->bufnode_->Lock();
+	
+	if (target_ptr->local_depth != target_ptr->bufnode_->local_depth) {
+		target_ptr->bufnode_->Unlock();
+		goto retry;
+	}
 
 	bool res = target_ptr->bufnode_->Put(key, (char*)value);
 	if (res) {
@@ -380,7 +421,6 @@ DIR_RETRY:
 
     }
     else { // normal split
-		printf("Normal split\n");
 		while(!D_RW(dir)->lock()){
 			asm("nop");
 		}
@@ -473,59 +513,28 @@ void CCEH::mergeBufAndSplitWhenNeeded(PMEMobjpool* pop, WriteBuffer* bufnode, Se
 		// INFO("Split segment %lu. depth %lu, ", x, target_local_depth);
 
 		// step 1. Split the dram segment
-		Segment* splits = old_segment_dram.SplitDram();
+		Segment* splits = old_segment_dram.SplitDram(iter);
 		Segment* split_segment_dram = splits + 1;
 		Segment* new_segment_dram   = splits;
 
-		// step 2. Insert the remaining kv records
-		int merged = 0;
-		while (iter.Valid()) {
-			merged++;
-			auto& kv = *iter;
-			Key_t key = kv.key;
-			Value_t val = kv.val;
-			auto f_hash = h(&key, sizeof(Key_t));
-			auto k_x = f_hash >> (8 * sizeof(f_hash) - D_RO(dir)->depth);
-			if (k_x == x) {
-				// insert to new segment
-				if (!new_segment_dram->Insert4split(key, val, (f_hash & kMask) * kNumPairPerCacheLine)) {
-					// insert fail, the new segment is full. we need to split it
-					printf("NewSegment insert should not fail after split\n");
-					INFO("NewSegment insert should not fail after split");
-					INFO("Inserted before split: %d, merged after split %d", inserted, merged);
-					exit(1);
-				}
-			} else if (k_x == x - 1 || k_x == x + 1) {
-				// insert to split segment
-				if (!split_segment_dram->Insert4split(key, val, (f_hash & kMask) * kNumPairPerCacheLine)) {
-					// insert fail, the new segment is full. we need to split it
-					printf("SplitSegment insert should not fail after split\n");
-					exit(1);
-				}
-			} else {
-				printf("Should not enter here\n");
-				INFO("Should not enter here. k_x %lu, x %lu", k_x, x);
-				exit(1);
-			}
-			++iter;
-		}
-
-		// step 3. Copy dram version to pmem
+		// step 2. Copy dram version to pmem
 		TOID(struct Segment) split_segment;
 		POBJ_ALLOC(pop, &split_segment, struct Segment, sizeof(struct Segment), NULL, NULL);
 		// persist the split segment
-		pmemobj_memcpy_persist(pop, D_RW(split_segment), split_segment_dram, sizeof(struct Segment));
+		pmemobj_memcpy(pop, D_RW(split_segment), split_segment_dram, sizeof(struct Segment), PMEMOBJ_F_MEM_NODRAIN);
 		TOID(struct Segment) new_segment;
 		POBJ_ALLOC(pop, &new_segment, struct Segment, sizeof(struct Segment), NULL, NULL);
 		// persist the new segment after split
-		pmemobj_memcpy_persist(pop, D_RW(new_segment), new_segment_dram, sizeof(struct Segment));
+		pmemobj_memcpy(pop, D_RW(new_segment), new_segment_dram, sizeof(struct Segment), PMEMOBJ_F_MEM_NODRAIN);
+		pmemobj_drain(pop);
 
-		// step 4. Set the directory
+		// step 3. Set the directory
 MERGE_SPLIT_RETRY:
 		if (D_RO(target)->local_depth == D_RO(dir)->depth) { // need double the directory
 			printf("Double Directory\n");
-			INFO("Double Directory\n");			
+			INFO("Double Directory\n");
 			if(!D_RW(dir)->suspend()){
+				INFO("Double directory conflicts");
 				// other thread is doubling the directory
 				std::this_thread::yield();
 				goto MERGE_SPLIT_RETRY;
@@ -593,7 +602,7 @@ MERGE_SPLIT_RETRY:
 			else {
 				// there are multiple dir entries pointing to split segment				
 				int stride = pow(2, D_RO(dir)->depth - target_local_depth);
-				INFO("Split stride %d ", stride);
+				// INFO("Split stride %d ", stride);
 				auto loc = x - (x % stride);
 				for(int i = 0; i < stride / 2; ++i){
 					D_RW(D_RW(dir)->segment)[loc + stride / 2 + i] = split_segment;
@@ -644,12 +653,12 @@ MERGE_SPLIT_RETRY:
 		}
 		else {
 			// there are multiple dir entries pointing to this segment
-			INFO("Update multiple directory");
+			// INFO("Update multiple directory");
 			int stride = pow(2, D_RO(dir)->depth - D_RO(target)->local_depth);
 			auto loc = x - (x % stride);
 			for(int i = 0; i < stride / 2; ++i){
 				auto new_x = loc + stride / 2 + i;
-				INFO("Update multiple directory %lu", new_x);
+				// INFO("Update multiple directory %lu", new_x);
 				D_RW(D_RW(dir)->segment)[new_x] = new_segment;
 			}
 			pmemobj_persist(pop, (char*)&D_RO(D_RO(dir)->segment)[loc+stride/2], sizeof(TOID(struct Segment))*stride/2);

@@ -29,7 +29,7 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
-DEFINE_int32(initsize, 1, "initial capacity in million");
+DEFINE_int32(initsize, 16, "initial capacity in million");
 DEFINE_string(filepath, "/mnt/pmem/objpool.data", "");
 DEFINE_uint32(batch, 1000000, "report batch");
 DEFINE_uint32(readtime, 0, "if 0, then we read all keys");

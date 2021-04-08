@@ -106,7 +106,7 @@ struct Segment{
     int Insert(PMEMobjpool*, Key_t&, Value_t, size_t, size_t);
     bool Insert4split(Key_t&, Value_t, size_t);
     TOID(struct Segment)* Split(PMEMobjpool*);
-	struct Segment* SplitDram();
+	struct Segment* SplitDram(WriteBuffer::Iterator& iter);
     std::vector<std::pair<size_t, size_t>> find_path(size_t, size_t);
     void execute_path(PMEMobjpool*, std::vector<std::pair<size_t, size_t>>&, Key_t&, Value_t);
     void execute_path(std::vector<std::pair<size_t, size_t>>&, Pair);
