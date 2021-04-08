@@ -529,16 +529,16 @@ void CCEH::mergeBufAndSplitWhenNeeded(PMEMobjpool* pop, WriteBuffer* bufnode, Se
 
 		// step 3. Set the directory
 MERGE_SPLIT_RETRY:
-		if (D_RO(target)->local_depth == D_RO(dir)->depth) { // need double the directory
-			printf("Double Directory\n");
-			INFO("Double Directory\n");
-			
+		if (D_RO(target)->local_depth == D_RO(dir)->depth) { // need double the directory			
 			if(!D_RW(dir)->suspend()){
 				INFO("Double directory conflicts");
 				// other thread is doubling the directory
 				std::this_thread::yield();
 				goto MERGE_SPLIT_RETRY;
 			}
+			printf("Double Directory\n");
+			INFO("Double Directory\n");
+			
 			// begin doubling			
 			TOID_ARRAY(TOID(struct Segment)) d = D_RO(dir)->segment;
 			TOID(struct Directory) _dir;
@@ -648,16 +648,16 @@ MERGE_SPLIT_RETRY:
 			asm("nop");
 		}
 
-		INFO("Merge segment. old segment %lu: 0x%lx. local d: %lu, bufnode 0x%lx, d: %lu new segment 0x%lx. local d: %lu, bufnode 0x%lx, d: %lu", x, 
-		D_RW(target),
-		D_RW(target)->local_depth,
-		D_RW(target)->bufnode_,
-		D_RW(target)->bufnode_->local_depth,
-		D_RW(new_segment),
-		D_RW(new_segment)->local_depth,
-		D_RW(new_segment)->bufnode_,
-		D_RW(new_segment)->bufnode_->local_depth
-		);
+		// INFO("Merge segment. old segment %lu: 0x%lx. local d: %lu, bufnode 0x%lx, d: %lu new segment 0x%lx. local d: %lu, bufnode 0x%lx, d: %lu", x, 
+		// D_RW(target),
+		// D_RW(target)->local_depth,
+		// D_RW(target)->bufnode_,
+		// D_RW(target)->bufnode_->local_depth,
+		// D_RW(new_segment),
+		// D_RW(new_segment)->local_depth,
+		// D_RW(new_segment)->bufnode_,
+		// D_RW(new_segment)->bufnode_->local_depth
+		// );
 
 		if (D_RO(dir)->depth == D_RO(target)->local_depth) {
 			// only need to update one dir entry

@@ -68,7 +68,11 @@ public:
     BitSet(const BitSet& b) {
         bits_ = b.bits_;
     }
-    
+
+    inline int validCount(void) {
+        return __builtin_popcount(bits_);
+    }
+
     inline BitSet& operator++() {
         // remove the lowest 1-bit
         bits_ &= (bits_ - 1);
@@ -545,6 +549,7 @@ public:
         meta_.data_ = 0;
     }
     
+
     inline void MaskLastN(int n) {
         uint16_t mask = 0;
         int count = ValidCount();
@@ -576,6 +581,10 @@ public:
 
     inline int ValidCount() {
         return __builtin_popcount(meta_.valid_ & (~meta_.deleted_) & kBitMapMask);
+    }
+
+    inline bool Full() {
+        return __builtin_popcount(meta_.valid_ & kBitMapMask) == kBufNodeFull;
     }
 
     struct SortByKey {
@@ -619,6 +628,7 @@ public:
             if (kv.key == key) {
                 // update request
                 old_pos = i;
+                break;
             } 
         }
 
@@ -651,6 +661,24 @@ public:
         BUFLOG_COMPILER_FENCE();
         meta_.data_ = new_meta.data_;
         return true;
+    }
+
+    inline void insert(int64_t key, char* val, int i, int oi, uint8_t tag) {
+        kvs_[i].key = key;
+        kvs_[i].val = val;
+        tags_[i]    = tag;
+
+        // atomicly set the meta
+        Meta new_meta = meta_;
+        new_meta.valid_ = meta_.valid_ | (1 << i);
+        if (oi != -1) {
+            // reset old pos if this is an update request.
+            new_meta.valid_ ^= (1 << oi);
+        }
+        new_meta.deleted_ = meta_.deleted_ & (~(1 << i));
+
+        BUFLOG_COMPILER_FENCE();
+        meta_.data_ = new_meta.data_;
     }
 
     inline bool Get(int64_t key, char*& val) {
@@ -844,6 +872,7 @@ public:
     static_assert(__builtin_popcount(NUM) == 1, "NUM should be power of 2");
     static constexpr size_t kNodeNumMask = NUM - 1;
     static constexpr size_t kNodeNum = NUM;
+    static constexpr size_t kProbeLen = NUM / 2;
     
     WriteBuffer() {
         local_depth = 0;
@@ -855,17 +884,93 @@ public:
     
     inline bool Put(int64_t key, char* val) {
         size_t hash = Hasher::hash_int(key);
-        return nodes_[hash & kNodeNumMask].Put(key, val, hash);
+        uint8_t tag = hash & 0xFF;
+        int old_i = -1;
+        int bucket_to_insert = -1;
+        int slot_to_insert = -1;
+        for (int p = 0; p < kProbeLen; ++p) {
+            int idx = (hash + p) & kNodeNumMask;
+            SortedBufNode& bucket = nodes_[idx];
+            auto empty_bitset = bucket.EmptyBitSet();
+
+            for (int i : bucket.MatchBitSet(tag)) {
+                KV& kv = bucket.kvs_[i];
+                if (kv.key == key) {
+                    // update
+                    old_i = i;
+                    bucket_to_insert = idx;
+                    slot_to_insert = *empty_bitset;
+                    goto put_probe_end;
+                }
+            }
+            
+            if (empty_bitset.validCount() > 1) {
+                bucket_to_insert = idx;
+                slot_to_insert = *empty_bitset;
+            }
+
+            if (!bucket.Full()) {
+                // reach search end
+                bucket_to_insert = idx;
+                slot_to_insert = *empty_bitset;
+                break;
+            }
+        }
+    put_probe_end:
+        if (bucket_to_insert == -1) {
+            // no avaliable slot 
+            return false;
+        }
+
+        nodes_[bucket_to_insert].insert(key, val, slot_to_insert, old_i, tag);
+        return true;
     }
 
     inline bool Get(int64_t key, char*& val) {
         size_t hash = Hasher::hash_int(key);
-        return nodes_[hash & kNodeNumMask].Get(key, val, hash);
+        uint8_t tag = hash & 0xFF;
+        for (int p = 0; p < kProbeLen; ++p) {
+            int idx = (hash + p) & kNodeNumMask;
+            SortedBufNode& bucket = nodes_[idx];
+
+            for (int i : bucket.MatchBitSet(tag)) {
+                KV& kv = bucket.kvs_[i];
+                if (kv.key == key) {
+                    val = kv.val;
+                    return true;
+                }
+            }
+
+            if (!bucket.Full()) {
+                // reach search end
+                return false;
+            }
+        }        
+        return false;
     }
 
     inline bool Delete(int64_t key) {
         size_t hash = Hasher::hash_int(key);
-        return nodes_[hash & kNodeNumMask].Delete(key, hash);
+        size_t tag  = hash & 0xFF;
+        for (int p = 0; p < kProbeLen; ++p) {
+            int idx = (hash + p) & kNodeNumMask;
+            SortedBufNode& bucket = nodes_[idx];
+
+            for (int i : bucket.MatchBitSet(tag)) {
+                KV& kv = bucket.kvs_[i];
+                if (kv.key == key) {
+                    // find the key, set the deleted map
+                    bucket.meta_.deleted_ = bucket.meta_.deleted_ | (1 << i);
+                    return true;
+                } 
+            }
+
+            if (!bucket.Full()) {
+                // reach search end
+                return false;
+            }
+        }
+        return false;        
     }
 
     inline void Lock() {
