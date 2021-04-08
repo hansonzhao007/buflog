@@ -844,6 +844,7 @@ public:
     static_assert(__builtin_popcount(NUM) == 1, "NUM should be power of 2");
     static constexpr size_t kNodeNumMask = NUM - 1;
     static constexpr size_t kNodeNum = NUM;
+    static constexpr size_t kProbeLen = NUM / 2;
     
     WriteBuffer() {
         local_depth = 0;
@@ -855,12 +856,22 @@ public:
     
     inline bool Put(int64_t key, char* val) {
         size_t hash = Hasher::hash_int(key);
-        return nodes_[hash & kNodeNumMask].Put(key, val, hash);
+        for (int i = 0; i < kProbeLen; ++i) {
+            int idx = (hash + i) & kNodeNumMask;
+            bool res = nodes_[idx].Put(key, val, hash);
+            if (res) return true;
+        }
+        return false;
     }
 
     inline bool Get(int64_t key, char*& val) {
         size_t hash = Hasher::hash_int(key);
-        return nodes_[hash & kNodeNumMask].Get(key, val, hash);
+        for (int i = 0; i < kProbeLen; ++i) {
+            int idx = (hash + i) & kNodeNumMask;
+            bool res = nodes_[idx].Get(key, val, hash);
+            if (res) return true;
+        }
+        return false;
     }
 
     inline bool Delete(int64_t key) {

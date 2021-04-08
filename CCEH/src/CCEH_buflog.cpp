@@ -380,12 +380,12 @@ RETRY:
     TOID(struct Segment)* s = D_RW(target)->Split(pop);
 DIR_RETRY:
     /* need to double the directory */
-    if(D_RO(target)->local_depth == D_RO(dir)->depth){
-		printf("Double dir\n");
+    if(D_RO(target)->local_depth == D_RO(dir)->depth){		
 		if(!D_RW(dir)->suspend()){
 			std::this_thread::yield();
 			goto DIR_RETRY;
 		}
+		printf("Double dir\n");
 
 		x = (f_hash >> (8*sizeof(f_hash) - D_RO(dir)->depth));
 		auto dir_old = dir;

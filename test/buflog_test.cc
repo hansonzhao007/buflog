@@ -135,10 +135,10 @@ TEST(SortedBufNode, MaskLastN) {
 
 
 TEST(WriteBuffer, Iterator) {
-    WriteBuffer<8> buf_node;
+    WriteBuffer<4> buf_node;
 
     char val[128] = "value 123";
-    for (int i = 12; i > 0; i--) {
+    for (int i = 30; i > 0; i--) {
         bool res = buf_node.Put(i, val);
         EXPECT_TRUE(res);
     }
