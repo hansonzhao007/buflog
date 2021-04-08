@@ -1,0 +1,69 @@
+key trace size: 50000000
+Randomize the trace...------------------------------------------------
+HashType:              CCEH buflog
+Init Capacity:         16777216
+Entries:               50000000
+Trace size:            50000000
+Read:                  1000000 
+Write:                 1000000 
+Thread:                20 
+Report interval:       0 s
+Stats interval:        10000000 records
+benchmarks:            load,readrandom
+------------------------------------------------
+[32mStart IPMWatcher for load
+[0mthread 12, between 30000000 - 32500000
+thread  1, between 2500000 - 5000000
+thread 15, between 37500000 - 40000000
+thread  0, between 0 - 2500000
+thread 10, between 25000000 - 27500000
+thread  9, between 22500000 - 25000000
+thread 16, between 40000000 - 42500000
+thread  4, between 10000000 - 12500000
+thread  6, between 15000000 - 17500000
+thread  5, between 12500000 - 15000000
+thread 19, between 47500000 - 50000000
+thread  8, between 20000000 - 22500000
+thread 17, between 42500000 - 45000000
+thread 11, between 27500000 - 30000000
+thread 13, between 32500000 - 35000000
+thread  2, between 5000000 - 7500000
+thread 14, between 35000000 - 37500000
+thread  3, between 7500000 - 10000000
+thread 18, between 45000000 - 47500000
+thread  7, between 17500000 - 20000000
+load         :       0.180 micros/op 5.298030 Mops/s;
+[34mDIMM0 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.46 |         6.98 |  14.42 | 480.62 |[0m
+[34mDIMM1 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       8133.05 |        4316.37 |    18292.95 |     12304.78 |   2.25 |   2.85 |[0m
+[34mDIMM2 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.45 |         6.99 |  14.16 | 481.31 |[0m
+[34mDIMM3 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.46 |         6.99 |  14.65 | 481.38 |[0m
+[34mDIMM4 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.45 |         6.98 |  14.29 | 480.50 |[0m
+[34mDIMM5 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.45 |         6.99 |  14.32 | 481.03 |[0m
+[34m*SUM* | DIMM-R:  2032.5 MB/s. User-R:   903.6 MB/s   | DIMM-W:  1370.9 MB/s, User-W:   479.5 MB/s. Time:   9.00s.[0m
+App Read:  8133.2 MB, Raw Read: 18295.2 MB, App Write:  4316.4 MB, Raw Write: 12339.7 MB
+[32mDestroy IPMWatcher.
+[0m
+Randomize the trace...[32mStart IPMWatcher for readrandom
+[0mreadrandom   :       0.154 micros/op 6.206140 Mops/s; (num: 1000000, not find: 3)
+[34mDIMM0 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.16 |         2.48 |   5.14 | 171.03 |[0m
+[34mDIMM1 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       5294.23 |         649.08 |    11238.24 |      2615.76 |   2.12 |   4.03 |[0m
+[34mDIMM2 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.16 |         2.49 |   5.10 | 171.13 |[0m
+[34mDIMM3 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.17 |         2.49 |   5.43 | 171.56 |[0m
+[34mDIMM4 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.16 |         2.48 |   5.07 | 170.94 |[0m
+[34mDIMM5 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.16 |         2.49 |   5.11 | 171.16 |[0m
+[34m*SUM* | DIMM-R:  3656.0 MB/s. User-R:  1722.2 MB/s   | DIMM-W:   854.9 MB/s, User-W:   211.2 MB/s. Time:   3.07s.[0m
+App Read:  5294.4 MB, Raw Read: 11239.1 MB, App Write:   649.2 MB, Raw Write:  2628.2 MB
+[32mDestroy IPMWatcher.
+[0m

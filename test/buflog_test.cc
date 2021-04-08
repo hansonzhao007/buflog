@@ -133,6 +133,30 @@ TEST(SortedBufNode, MaskLastN) {
 }
 
 
+
+TEST(WriteBuffer, Iterator) {
+    WriteBuffer<8> buf_node;
+
+    char val[128] = "value 123";
+    for (int i = 12; i > 0; i--) {
+        bool res = buf_node.Put(i, val);
+        EXPECT_TRUE(res);
+    }
+
+
+    auto iter = buf_node.Begin();
+    EXPECT_TRUE(iter.Valid());
+
+    int i = 0;
+    while (iter.Valid()) {        
+        printf("entry %d: %s\n", iter->key, iter->val);
+        // printf("%s\n", iter.iter.node_->ToString().c_str());
+        ++iter;
+    }
+
+}
+
+
 TEST(Btree, Update) {
     page new_page;
     int num = 0;

@@ -606,6 +606,10 @@ public:
 
     inline bool Put(int64_t key, char* val) {
         size_t hash = Hasher::hash_int(key);
+        return Put(key, val, hash);
+    }
+
+    inline bool Put(int64_t key, char* val, size_t hash) {        
         size_t tag  = hash & 0xFF;
 
         // step 1. check if node already has this key
@@ -651,6 +655,10 @@ public:
 
     inline bool Get(int64_t key, char*& val) {
         size_t hash = Hasher::hash_int(key);
+        return Get(key, val, hash);
+    }
+
+    inline bool Get(int64_t key, char*& val, size_t hash) {        
         size_t tag  = hash & 0xFF;
 
         for (int i : MatchBitSet(tag)) {
@@ -666,6 +674,10 @@ public:
 
     inline bool Delete(int64_t key) {
         size_t hash = Hasher::hash_int(key);
+        return Delete(key, hash);
+    }
+
+    inline bool Delete(int64_t key, size_t hash) {        
         size_t tag  = hash & 0xFF;
 
         for (int i : MatchBitSet(tag)) {
@@ -794,7 +806,7 @@ public:
             ++bitset_;
             return tmp; 
         }
-    private:
+    // private:
         SortedBufNode* node_;
         BitSet bitset_;
     };
@@ -824,6 +836,104 @@ public:
 };
 
 static_assert(sizeof(SortedBufNode) == 256, "SortBufNode is not 256 byte");
+
+// A group of SortedBufNode
+template<size_t NUM>
+class WriteBuffer {
+public:
+    static_assert(__builtin_popcount(NUM) == 1, "NUM should be power of 2");
+    static constexpr size_t kNodeNumMask = NUM - 1;
+    static constexpr size_t kNodeNum = NUM;
+    
+    WriteBuffer() {
+        local_depth = 0;
+    }
+
+    WriteBuffer(size_t d) {
+        local_depth = d;
+    }
+    
+    inline bool Put(int64_t key, char* val) {
+        size_t hash = Hasher::hash_int(key);
+        return nodes_[hash & kNodeNumMask].Put(key, val, hash);
+    }
+
+    inline bool Get(int64_t key, char*& val) {
+        size_t hash = Hasher::hash_int(key);
+        return nodes_[hash & kNodeNumMask].Get(key, val, hash);
+    }
+
+    inline bool Delete(int64_t key) {
+        size_t hash = Hasher::hash_int(key);
+        return nodes_[hash & kNodeNumMask].Delete(key, hash);
+    }
+
+    inline void Lock() {
+        lock_.lock();
+    }
+
+    inline void Unlock() {
+        lock_.unlock();
+    }
+
+    inline void Reset() {
+        for (int i = 0; i < kNodeNum; i++) {
+            nodes_[i].Reset();
+        }
+    }
+    class Iterator {
+    public:
+        Iterator(WriteBuffer<kNodeNum>* wb):
+            wb_(wb),
+            cur_(0),
+            iter(wb_->nodes_[0].Begin()) {
+            toNextValidIter();
+        }
+
+        inline bool Valid(void) {            
+            return iter.Valid() || cur_ < kNodeNum;
+        }
+
+        KV& operator*() const {
+            return *iter;
+        }
+
+        KV* operator->() const {
+            return &(*iter);
+        }
+        
+        // Prefix ++ overload 
+        inline Iterator& operator++() {
+            iter++;
+            if (!iter.Valid()) {
+                toNextValidIter();  
+            }          
+            return *this; 
+        }
+
+        void toNextValidIter(void) {
+            while (!iter.Valid() && cur_ < kNodeNum) {
+                cur_++;
+                if (cur_ == kNodeNum) {
+                    break;
+                }
+                iter = wb_->nodes_[cur_].Begin();                
+            }
+        }
+        WriteBuffer<kNodeNum>* wb_;
+        SortedBufNode::Iterator iter;
+        int cur_;
+    };
+
+
+    Iterator Begin() {
+        return Iterator(this);
+    }
+    
+    SortedBufNode nodes_[NUM];
+    AtomicSpinLock lock_;
+    size_t local_depth;
+};
 
 class BufNode128 {
 public:

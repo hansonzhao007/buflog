@@ -39,9 +39,12 @@ constexpr size_t kSegmentBits = 8;
 constexpr size_t kMask = (1 << kSegmentBits)-1;
 constexpr size_t kShift = kSegmentBits;
 constexpr size_t kSegmentSize = (1 << kSegmentBits) * 16 * 4;
+constexpr size_t kWriteBufferSize = kSegmentSize / 2 / 256;
 constexpr size_t kNumPairPerCacheLine = 4;
 constexpr size_t kNumCacheLine = 8;
 constexpr size_t kCuckooThreshold = 16;
+
+using WriteBuffer = buflog::WriteBuffer<kWriteBufferSize>;
 //constexpr size_t kCuckooThreshold = 32;
 
 struct Segment{
@@ -51,21 +54,21 @@ struct Segment{
     ~Segment(void){ }
 
     void initSegment(void){
-	for(int i=0; i<kNumSlot; ++i){
-	    bucket[i].key = INVALID;
-	}
-	local_depth = 0;
-	sema = 0;
-	bufnode_ = new buflog::SortedBufNode();
+		for(int i=0; i<kNumSlot; ++i){
+			bucket[i].key = INVALID;
+		}
+		local_depth = 0;
+		sema = 0;
+		bufnode_ = new WriteBuffer();
     }
 
     void initSegment(size_t depth){
-	for(int i=0; i<kNumSlot; ++i){
-	    bucket[i].key = INVALID;
-	}
-	local_depth = depth;
-	sema = 0;
-	bufnode_ = new buflog::SortedBufNode();
+		for(int i=0; i<kNumSlot; ++i){
+			bucket[i].key = INVALID;
+		}
+		local_depth = depth;
+		sema = 0;
+		bufnode_ = new WriteBuffer(depth);
     }
 
     bool suspend(void){
@@ -103,6 +106,7 @@ struct Segment{
     int Insert(PMEMobjpool*, Key_t&, Value_t, size_t, size_t);
     bool Insert4split(Key_t&, Value_t, size_t);
     TOID(struct Segment)* Split(PMEMobjpool*);
+	struct Segment* SplitDram();
     std::vector<std::pair<size_t, size_t>> find_path(size_t, size_t);
     void execute_path(PMEMobjpool*, std::vector<std::pair<size_t, size_t>>&, Key_t&, Value_t);
     void execute_path(std::vector<std::pair<size_t, size_t>>&, Pair);
@@ -111,7 +115,7 @@ struct Segment{
     Pair bucket[kNumSlot];    
 	int64_t sema = 0;
     size_t local_depth;	
-	buflog::SortedBufNode* bufnode_;
+	WriteBuffer* bufnode_;
 };
 
 struct Directory{
@@ -161,11 +165,15 @@ struct Directory{
 	depth = kDefaultDepth;
 	capacity = pow(2, depth);
 	sema = 0;
+	INFO("Directory capacity: %lu. depth %lu\n", capacity, depth);
+	printf("Directory capacity: %lu. depth %lu\n", capacity, depth);
     }
 
     void initDirectory(size_t _depth){
 		depth = _depth;
 		capacity = pow(2, _depth);
+		INFO("Directory capacity: %lu. depth %lu\n", capacity, depth);
+		printf("Directory capacity: %lu. depth %lu\n", capacity, depth);
 		sema = 0;
     }
 };
@@ -179,7 +187,8 @@ class CCEH{
 
 	void Insert(PMEMobjpool*, Key_t&, Value_t);
 	void insert(PMEMobjpool*, Key_t&, Value_t, bool with_lock);
-	bool InsertOnly(PMEMobjpool*, Key_t&, Value_t);	
+	void mergeBufAndSplitWhenNeeded(PMEMobjpool*, WriteBuffer* bufnode, Segment_toid& target, size_t x);
+	bool InsertOnly(PMEMobjpool*, Key_t&, Value_t);
 	bool Delete(Key_t&);
 	Value_t Get(Key_t&);
 	Value_t get(Key_t&);

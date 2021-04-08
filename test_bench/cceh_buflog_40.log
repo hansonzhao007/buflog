@@ -1,0 +1,89 @@
+key trace size: 50000000
+Randomize the trace...------------------------------------------------
+HashType:              CCEH buflog
+Init Capacity:         16777216
+Entries:               50000000
+Trace size:            50000000
+Read:                  1000000 
+Write:                 1000000 
+Thread:                40 
+Report interval:       0 s
+Stats interval:        10000000 records
+benchmarks:            load,readrandom
+------------------------------------------------
+[32mStart IPMWatcher for load
+[0mthread 39, between 48750000 - 50000000
+thread 38, between 47500000 - 48750000
+thread  8, between 10000000 - 11250000
+thread 17, between 21250000 - 22500000
+thread  9, between 11250000 - 12500000
+thread 14, between 17500000 - 18750000
+thread 16, between 20000000 - 21250000
+thread 12, between 15000000 - 16250000
+thread 23, between 28750000 - 30000000
+thread 26, between 32500000 - 33750000
+thread 21, between 26250000 - 27500000
+thread 27, between 33750000 - 35000000
+thread 31, between 38750000 - 40000000
+thread 13, between 16250000 - 17500000
+thread 32, between 40000000 - 41250000
+thread 34, between 42500000 - 43750000
+thread 35, between 43750000 - 45000000
+thread  4, between 5000000 - 6250000
+thread 36, between 45000000 - 46250000
+thread 19, between 23750000 - 25000000
+thread  2, between 2500000 - 3750000
+thread  7, between 8750000 - 10000000
+thread  5, between 6250000 - 7500000
+thread 30, between 37500000 - 38750000
+thread 20, between 25000000 - 26250000
+thread 18, between 22500000 - 23750000
+thread 29, between 36250000 - 37500000
+thread  0, between 0 - 1250000
+thread 15, between 18750000 - 20000000
+thread 24, between 30000000 - 31250000
+thread  6, between 7500000 - 8750000
+thread 25, between 31250000 - 32500000
+thread 33, between 41250000 - 42500000
+thread 11, between 13750000 - 15000000
+thread 37, between 46250000 - 47500000
+thread 10, between 12500000 - 13750000
+thread  3, between 3750000 - 5000000
+thread 28, between 35000000 - 36250000
+thread 22, between 27500000 - 28750000
+thread  1, between 1250000 - 2500000
+load         :       0.185 micros/op 5.144919 Mops/s;
+[34mDIMM0 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.48 |         7.20 |  15.09 | 495.92 |[0m
+[34mDIMM1 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       7980.24 |        4333.27 |    18636.63 |     12677.67 |   2.34 |   2.93 |[0m
+[34mDIMM2 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.46 |         7.21 |  14.60 | 496.00 |[0m
+[34mDIMM3 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.48 |         7.20 |  15.09 | 495.88 |[0m
+[34mDIMM4 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.46 |         7.19 |  14.59 | 495.09 |[0m
+[34mDIMM5 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.47 |         7.20 |  14.73 | 495.97 |[0m
+[34m*SUM* | DIMM-R:  2010.8 MB/s. User-R:   860.9 MB/s   | DIMM-W:  1371.6 MB/s, User-W:   467.5 MB/s. Time:   9.27s.[0m
+App Read:  7980.4 MB, Raw Read: 18639.0 MB, App Write:  4333.3 MB, Raw Write: 12713.7 MB
+[32mDestroy IPMWatcher.
+[0m
+Randomize the trace...[32mStart IPMWatcher for readrandom
+[0mreadrandom   :       0.147 micros/op 6.502537 Mops/s; (num: 1000000, not find: 2)
+[34mDIMM0 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.30 |         4.63 |   9.61 | 318.49 |[0m
+[34mDIMM1 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |       8924.68 |        1275.19 |    19827.17 |      5148.45 |   2.22 |   4.04 |[0m
+[34mDIMM2 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.30 |         4.63 |   9.37 | 318.72 |[0m
+[34mDIMM3 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.31 |         4.64 |   9.84 | 319.11 |[0m
+[34mDIMM4 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.30 |         4.62 |   9.44 | 318.18 |[0m
+[34mDIMM5 | Read from IMC | Write from IMC |  Read DIMM  |  Write DIMM  |   RA   |   WA   |
+  MB  |          0.03 |           0.01 |        0.30 |         4.63 |   9.47 | 318.47 |[0m
+[34m*SUM* | DIMM-R:  3379.3 MB/s. User-R:  1521.0 MB/s   | DIMM-W:   881.4 MB/s, User-W:   217.3 MB/s. Time:   5.87s.[0m
+App Read:  8924.8 MB, Raw Read: 19828.7 MB, App Write:  1275.3 MB, Raw Write:  5171.6 MB
+[32mDestroy IPMWatcher.
+[0m

@@ -29,7 +29,7 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
-DEFINE_int32(initsize, 16, "initial capacity in million");
+DEFINE_int32(initsize, 1, "initial capacity in million");
 DEFINE_string(filepath, "/mnt/pmem/objpool.data", "");
 DEFINE_uint32(batch, 1000000, "report batch");
 DEFINE_uint32(readtime, 0, "if 0, then we read all keys");
@@ -37,11 +37,11 @@ DEFINE_uint32(thread, 1, "");
 DEFINE_uint64(report_interval, 0, "Report interval in seconds");
 DEFINE_uint64(stats_interval, 10000000, "Report interval in ops");
 DEFINE_uint64(value_size, 8, "The value size");
-DEFINE_uint64(num, 1 * 1000000LU, "Number of total record");
-DEFINE_uint64(read,  1 * 1000000, "Number of read operations");
+DEFINE_uint64(num, 10 * 1000000LU, "Number of total record");
+DEFINE_uint64(read,  0, "Number of read operations");
 DEFINE_uint64(write, 1 * 1000000, "Number of read operations");
 DEFINE_bool(hist, false, "");
-DEFINE_string(benchmarks, "load,readrandom", "");
+DEFINE_string(benchmarks, "load,readall", "");
 
 
 namespace {
@@ -332,7 +332,7 @@ static std::string TrimSpace(std::string s) {
 
 }
 
-#define POOL_SIZE (10737418240L * 10L) // 100GB
+#define POOL_SIZE (1073741824L * 20L) // 20GB
 class Benchmark {
 
 public:
@@ -411,6 +411,10 @@ public:
                 fresh_db = false;
                 key_trace_->Randomize();
                 method = &Benchmark::DoRead;                
+            } else if (name == "readall") {
+                fresh_db = false;
+                key_trace_->Randomize();
+                method = &Benchmark::DoReadAll;                
             } else if (name == "readnon") {
                 fresh_db = false;
                 key_trace_->Randomize();
@@ -476,6 +480,38 @@ public:
         }
         char buf[100];
         snprintf(buf, sizeof(buf), "(num: %lu, not find: %lu)", reads_, not_find);
+        thread->stats.AddMessage(buf);
+    }
+
+    void DoReadAll(ThreadState* thread) {
+        uint64_t batch = FLAGS_batch;
+        if (key_trace_ == nullptr) {
+            perror("DoReadAll lack key_trace_ initialization.");
+            return;
+        }
+        size_t interval = num_ / FLAGS_thread;
+        size_t start_offset = thread->tid * interval;
+        auto key_iterator = key_trace_->iterate_between(start_offset, start_offset + interval);
+        printf("thread %2d, between %lu - %lu\n", thread->tid, start_offset, start_offset + interval);
+
+        size_t not_find = 0;
+        uint64_t data_offset;
+        Duration duration(FLAGS_readtime, reads_);
+        thread->stats.Start();        
+        while (!duration.Done(batch) && key_iterator.Valid()) {
+            uint64_t j = 0;
+            for (; j < batch && key_iterator.Valid(); j++) {                          
+                size_t ikey = key_iterator.Next();                 
+                auto ret = D_RW(hashtable_)->Get(ikey);
+                if (ret != reinterpret_cast<Value_t>(ikey)) {
+                    not_find++;
+                }
+            }
+            thread->stats.FinishedBatchOp(j);
+        }
+        char buf[100];
+        snprintf(buf, sizeof(buf), "(num: %lu, not find: %lu)", interval, not_find);
+        printf("thread %2d num: %lu, not find: %lu\n",thread->tid, interval, not_find);
         thread->stats.AddMessage(buf);
     }
 
@@ -575,9 +611,11 @@ public:
         printf("thread %2d, between %lu - %lu\n", thread->tid, start_offset, start_offset + interval);
         thread->stats.Start();
         std::string val(value_size_, 'v');
-        while (key_iterator.Valid()) {
+        size_t inserted = 0;
+        while (key_iterator.Valid()) {            
             uint64_t j = 0;
-            for (; j < batch && key_iterator.Valid(); j++) {   
+            for (; j < batch && key_iterator.Valid(); j++) {
+                inserted++;   
                 size_t ikey = key_iterator.Next();  
                 D_RW(hashtable_)->Insert(pop_, ikey, reinterpret_cast<Value_t>(ikey));
             }
@@ -934,7 +972,7 @@ private:
     void PrintHeader() {
         fprintf(stdout, "------------------------------------------------\n");                   
         PrintEnvironment();
-        fprintf(stdout, "HashType:              %s\n", "CCEH");
+        fprintf(stdout, "HashType:              %s\n", "CCEH buflog");
         fprintf(stdout, "Init Capacity:         %lu\n", D_RW(hashtable_)->Capacity());
         fprintf(stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf(stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);                      
