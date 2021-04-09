@@ -511,7 +511,7 @@ public:
         }
         char buf[100];
         snprintf(buf, sizeof(buf), "(num: %lu, not find: %lu)", interval, not_find);
-        printf("thread %2d num: %lu, not find: %lu\n",thread->tid, interval, not_find);
+        if (not_find) printf("thread %2d num: %lu, not find: %lu\n",thread->tid, interval, not_find);
         thread->stats.AddMessage(buf);
     }
 

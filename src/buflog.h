@@ -872,7 +872,7 @@ public:
     static_assert(__builtin_popcount(NUM) == 1, "NUM should be power of 2");
     static constexpr size_t kNodeNumMask = NUM - 1;
     static constexpr size_t kNodeNum = NUM;
-    static constexpr size_t kProbeLen = NUM / 2;
+    static constexpr size_t kProbeLen = NUM / 2 - 1;
     
     WriteBuffer() {
         local_depth = 0;

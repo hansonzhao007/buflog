@@ -138,7 +138,7 @@ TEST(WriteBuffer, Iterator) {
     WriteBuffer<4> buf_node;
 
     char val[128] = "value 123";
-    for (int i = 30; i > 0; i--) {
+    for (int i = 60; i > 0; i--) {
         bool res = buf_node.Put(i, val);
         EXPECT_TRUE(res);
     }
@@ -149,7 +149,7 @@ TEST(WriteBuffer, Iterator) {
 
     int i = 0;
     while (iter.Valid()) {        
-        printf("entry %d: %s\n", iter->key, iter->val);
+        printf("entry %2d: key: %d, val: %s\n", i++, iter->key, iter->val);
         // printf("%s\n", iter.iter.node_->ToString().c_str());
         ++iter;
     }
