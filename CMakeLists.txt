@@ -119,6 +119,7 @@ include_directories(
   "${PROJECT_SOURCE_DIR}"
   "${PROJECT_SOURCE_DIR}/lib"
   "${PROJECT_SOURCE_DIR}/CCEH/src"
+  "${PROJECT_SOURCE_DIR}/Skiplist"
 )
 
 # add system local lib

@@ -396,6 +396,10 @@ public:
             return (*pkey_vec_)[cur_index_++];
         }
 
+        inline size_t* NextRef() {
+            return &(*pkey_vec_)[cur_index_++];
+        }
+
         std::vector<size_t>* pkey_vec_;
         size_t end_index_;
         size_t cur_index_;
