@@ -16,44 +16,6 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release) # RelWithDebInfo
 endif()
 
-# for P-CLHT
-execute_process(COMMAND cat /proc/cpuinfo COMMAND grep clflush OUTPUT_VARIABLE ENABLE_CLFLUSH)
-execute_process(COMMAND cat /proc/cpuinfo COMMAND grep clflushopt OUTPUT_VARIABLE ENABLE_CLFLUSHOPT)
-execute_process(COMMAND cat /proc/cpuinfo COMMAND grep clwb OUTPUT_VARIABLE ENABLE_CLWB)
-if(ENABLE_CLWB)
-    add_definitions(-DCLWB)
-    message(STATUS "Looking for clwb instruction - found")
-elseif(ENABLE_CLFLUSHOPT)
-    add_definitions(-DCLFLUSH_OPT)
-    message(STATUS "Looking for clwb instruction - not found")
-    message(STATUS "Looking for clflushopt instruction - found")
-elseif(ENABLE_CLFLUSH)
-    add_definitions(-DCLFLUSH)
-    message(STATUS "Looking for clwb instruction - not found")
-    message(STATUS "Looking for clflushopt instruction - not found")
-    message(STATUS "Looking for clflush instruction - found")
-else()
-    message(FATAL_ERROR "Cannot find any flush instructions (clflush, clflushopt, clwb)")
-endif()
-include_directories(
-  "${PROJECT_SOURCE_DIR}/RECIPE/P-CLHT/include"
-  "${PROJECT_SOURCE_DIR}/RECIPE/P-CLHT/external/include"
-)
-find_library(JemallocLib jemalloc)
-find_library(TbbLib tbb)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mrtm -mcx16 -mavx -mavx2 -mbmi2 -mlzcnt")
-add_definitions(-DADD_PADDING)
-
-add_definitions(-DBUFLOG)
-
-# # add Intel PCM library
-# add_custom_command( OUTPUT libPCM.a
-#                     COMMAND make lib -j8
-#                     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/lib/pcm)
-# add_custom_target(pcm DEPENDS libPCM.a)
-# link_directories(${PROJECT_SOURCE_DIR}/lib/pcm)
-# list(APPEND THIRDPARTY_LIBS PCM)
-
 # add liballoc.a library: https://github.com/urcs-sync/ralloc
 execute_process(  COMMAND make libralloc.a -j8
                   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/lib/ralloc/test
@@ -73,20 +35,8 @@ if(HAVE_JEMALLOC)
   list(APPEND THIRDPARTY_LIBS jemalloc)
 endif()
 
-# # add gflags library
-# add_subdirectory(lib/gflag)
-# list(APPEND THIRDPARTY_LIBS gflags)
-# include_directories(
-#     "${CMAKE_BINARY_DIR}/lib/gflag/include"
-# )
-
 # # add gtest library
-# add_subdirectory(lib/gtest)
 list(APPEND THIRDPARTY_LIBS gtest gflags)
-# include_directories(
-#     "${PROJECT_SOURCE_DIR}/lib/gtest/googletest/include"
-#     "${PROJECT_SOURCE_DIR}/lib/gtest/googlemock/include"
-# )
 
 if(CMAKE_COMPILER_IS_GNUCXX)
     execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpversion

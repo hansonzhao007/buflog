@@ -503,11 +503,19 @@ struct InlineSkipList<Comparator>::Node {
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
     (&next_[0] - n)->store(x, std::memory_order_release);
+    FLUSH(&next_[0] - n);
+    FLUSHFENCE;
   }
 
   bool CASNext(int n, Node* expected, Node* x) {
     assert(n >= 0);
-    return (&next_[0] - n)->compare_exchange_strong(expected, x);
+    bool res = (&next_[0] - n)->compare_exchange_strong(expected, x);
+    if (res) {
+      FLUSH(&next_[0] - n);
+      FLUSHFENCE;
+      return true;
+    }
+    return false;
   }
 
   // No-barrier variants that can be safely used in a few locations.
@@ -519,6 +527,7 @@ struct InlineSkipList<Comparator>::Node {
   void NoBarrier_SetNext(int n, Node* x) {
     assert(n >= 0);
     (&next_[0] - n)->store(x, std::memory_order_relaxed);
+    FLUSH(&next_[0] - n);
   }
 
   // Insert node after prev on specific level.
@@ -901,7 +910,7 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
            KeyIsAfterNode(next->Key(), before));
     assert(before == head_ || KeyIsAfterNode(key, before));
     if (next == after || !KeyIsAfterNode(key, next)) {
-      // found it
+      // found it. key <= next
       *out_prev = before;
       *out_next = next;
       return;
@@ -952,7 +961,8 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
     splice->next_[max_height] = nullptr;
     splice->height_ = max_height;
     recompute_height = max_height;
-  } else {
+  } 
+  else {
     // Splice is a valid proper-height splice that brackets some
     // key, but does it bracket this one?  We need to validate it and
     // recompute a portion of the splice (levels 0..recompute_height-1)
@@ -1049,7 +1059,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
                compare_(x->Key(), splice->next_[i]->Key()) < 0);
         assert(splice->prev_[i] == head_ ||
                compare_(splice->prev_[i]->Key(), x->Key()) < 0);
-        x->NoBarrier_SetNext(i, splice->next_[i]);
+        x->NoBarrier_SetNext(i, splice->next_[i]);        
         if (splice->prev_[i]->CASNext(i, splice->next_[i], x)) {
           // success
           break;
@@ -1070,7 +1080,9 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
         }
       }
     }
-  } else {
+  }
+  else {
+    // link the splice from level 0 to level height - 1
     for (int i = 0; i < height; ++i) {
       if (i >= recompute_height &&
           splice->prev_[i]->Next(i) != splice->next_[i]) {
@@ -1093,6 +1105,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
       assert(splice->prev_[i] == head_ ||
              compare_(splice->prev_[i]->Key(), x->Key()) < 0);
       assert(splice->prev_[i]->Next(i) == splice->next_[i]);
+      // link prev and next pointer
       x->NoBarrier_SetNext(i, splice->next_[i]);
       splice->prev_[i]->SetNext(i, x);
     }

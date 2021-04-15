@@ -120,6 +120,56 @@ TEST_F(InlineSkipTest, Empty) {
   ASSERT_TRUE(!iter.Valid());
 }
 
+
+TEST_F(InlineSkipTest, Insert) {
+  const int N = 50;
+  const int R = 5000;
+  Random rnd(1000);
+  std::set<Key> keys;
+  TestComparator cmp;
+  InlineSkipList<TestComparator>* list(InlineSkipList<TestComparator>::CreateSkiplist(cmp));
+  for (int i = 0; i < N; i+=2) {
+    Key key = i;
+    if (keys.insert(key).second) {
+      char* buf = list->AllocateKey(sizeof(Key));
+      memcpy(buf, &key, sizeof(Key));
+      list->Insert(buf);
+    }
+  }
+
+  {
+    char* buf = list->AllocateKey(sizeof(Key));
+    Key key = 33;
+    memcpy(buf, &key, sizeof(Key));
+    bool res = list->Insert(buf);
+    printf("Insert 33 %s\n", res ? "succ" : "fail");
+    InlineSkipList<TestComparator>::Iterator iter(list);
+    iter.SeekToFirst();
+    while (iter.Valid()) {
+      printf("%lu, ", Decode(iter.key()));
+      iter.Next();
+    }
+    printf("\n");
+  }
+
+  {
+    char* buf = list->AllocateKey(sizeof(Key));
+    Key key = 33;
+    memcpy(buf, &key, sizeof(Key));
+    bool res = list->Insert(buf);
+    printf("Insert 33 %s\n", res ? "succ" : "fail");
+    InlineSkipList<TestComparator>::Iterator iter(list);
+    iter.SeekToFirst();
+    while (iter.Valid()) {
+      printf("%lu, ", Decode(iter.key()));
+      iter.Next();
+    }
+    printf("\n");
+  }
+
+  
+}
+
 TEST_F(InlineSkipTest, InsertAndLookup) {
   const int N = 2000;
   const int R = 5000;
