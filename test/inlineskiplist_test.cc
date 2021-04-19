@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "Skiplist/inlineskiplist_pmem.h"
+#include "Skiplist/inlineskiplist_buflog.h"
 #include "Skiplist/port_posix.h"
 #include <set>
 #include <unordered_set>
@@ -101,258 +101,326 @@ class InlineSkipTest : public testing::Test {
   std::set<Key> keys_;
 };
 
-TEST_F(InlineSkipTest, Empty) {
-  TestComparator cmp;
-  InlineSkipList<TestComparator>* list(InlineSkipList<TestComparator>::CreateSkiplist(cmp));
-  Key key = 10;
-  ASSERT_TRUE(!list->Contains(Encode(&key)));
+// TEST_F(InlineSkipTest, Empty) {
+//   TestComparator cmp;
+//   InlineSkipList<TestComparator>* list(InlineSkipList<TestComparator>::CreateSkiplist(cmp));
+//   Key key = 10;
+//   ASSERT_TRUE(!list->Contains(Encode(&key)));
 
-  InlineSkipList<TestComparator>::Iterator iter(list);
-  ASSERT_TRUE(!iter.Valid());
-  iter.SeekToFirst();
-  ASSERT_TRUE(!iter.Valid());
-  key = 100;
-  iter.Seek(Encode(&key));
-  ASSERT_TRUE(!iter.Valid());
-  iter.SeekForPrev(Encode(&key));
-  ASSERT_TRUE(!iter.Valid());
-  iter.SeekToLast();
-  ASSERT_TRUE(!iter.Valid());
-}
+//   InlineSkipList<TestComparator>::Iterator iter(list);
+//   ASSERT_TRUE(!iter.Valid());
+//   iter.SeekToFirst();
+//   ASSERT_TRUE(!iter.Valid());
+//   key = 100;
+//   iter.Seek(Encode(&key));
+//   ASSERT_TRUE(!iter.Valid());
+//   iter.SeekForPrev(Encode(&key));
+//   ASSERT_TRUE(!iter.Valid());
+//   iter.SeekToLast();
+//   ASSERT_TRUE(!iter.Valid());
+// }
 
 
-TEST_F(InlineSkipTest, Insert) {
-  const int N = 50;
+// TEST_F(InlineSkipTest, Insert) {
+//   const int N = 20;
+//   const int R = 5000;
+//   Random rnd(1000);
+//   std::set<Key> keys;
+//   TestComparator cmp;
+//   InlineSkipList<TestComparator>* list(InlineSkipList<TestComparator>::CreateSkiplist(cmp));
+//   for (int i = 0; i < N; i+=2) {
+//     Key key = i;
+//     if (keys.insert(key).second) {
+//       char* buf = list->AllocateKey(sizeof(Key));
+//       memcpy(buf, &key, sizeof(Key));
+//       list->Insert(buf);
+//     }
+//   }
+
+//   {
+//     char* buf = list->AllocateKey(sizeof(Key));
+//     Key key = 33;
+//     memcpy(buf, &key, sizeof(Key));
+//     bool res = list->Insert(buf);
+//     printf("Insert 33 %s\n", res ? "succ" : "fail");
+//     InlineSkipList<TestComparator>::Iterator iter(list);
+//     iter.SeekToFirst();
+//     while (iter.Valid()) {
+//       printf("%lu(h:%d, buf:%lx), ", Decode(iter.key()), iter.Height(), iter.BufNode());
+//       iter.Next();
+//     }
+//     printf("\n");
+//   }
+
+//   {
+//     char* buf = list->AllocateKey(sizeof(Key));
+//     Key key = 33;
+//     memcpy(buf, &key, sizeof(Key));
+//     bool res = list->Insert(buf);
+//     printf("Insert 33 %s\n", res ? "succ" : "fail");
+//     InlineSkipList<TestComparator>::Iterator iter(list);
+//     iter.SeekToFirst();
+//     while (iter.Valid()) {
+//       printf("%lu, ", Decode(iter.key()));
+//       iter.Next();
+//     }
+//     printf("\n");
+//   }
+
+// }
+
+
+// TEST_F(InlineSkipTest, BufInsertBasic) {
+//   const int N = 8;
+//   const int R = 5000;
+//   Random rnd(1000);
+//   TestComparator cmp;
+//   InlineSkipList<TestComparator>* list(InlineSkipList<TestComparator>::CreateSkiplist(cmp));
+//   for (int i = 1; i <= N; i++) {
+//     size_t key = i;
+//     list->BufInsert((char*)&key);
+//   }
+
+//   for (int i = 1; i <= N; i++) {
+//     size_t key = i;
+//     EXPECT_TRUE(list->BufContains((char*)&key));
+//   }
+
+//   size_t key = 9;
+//   EXPECT_TRUE(list->BufInsert((char*)&key));
+//   EXPECT_TRUE(list->BufContains((char*)&key));
+  
+//   {
+//     InlineSkipList<TestComparator>::Iterator iter(list);
+//     iter.SeekToFirst();
+//     while (iter.Valid()) {
+//       printf("%lu(h:%d, buf:%lx), ", Decode(iter.key()), iter.Height(), iter.BufNode());
+//       iter.Next();
+//     }
+//     printf("\n");
+//   }
+// }
+
+
+TEST_F(InlineSkipTest, BufInsert) {
+  const int N = 1000;
   const int R = 5000;
   Random rnd(1000);
-  std::set<Key> keys;
   TestComparator cmp;
   InlineSkipList<TestComparator>* list(InlineSkipList<TestComparator>::CreateSkiplist(cmp));
-  for (int i = 0; i < N; i+=2) {
-    Key key = i;
-    if (keys.insert(key).second) {
-      char* buf = list->AllocateKey(sizeof(Key));
-      memcpy(buf, &key, sizeof(Key));
-      list->Insert(buf);
-    }
+  for (int i = 0; i < N; i++) {
+    size_t key = i;
+    list->BufInsert((char*)&key);
   }
 
-  {
-    char* buf = list->AllocateKey(sizeof(Key));
-    Key key = 33;
-    memcpy(buf, &key, sizeof(Key));
-    bool res = list->Insert(buf);
-    printf("Insert 33 %s\n", res ? "succ" : "fail");
-    InlineSkipList<TestComparator>::Iterator iter(list);
-    iter.SeekToFirst();
-    while (iter.Valid()) {
-      printf("%lu, ", Decode(iter.key()));
-      iter.Next();
-    }
-    printf("\n");
+  for (int i = 0; i < N; i++) {
+    size_t key = i;
+    EXPECT_TRUE(list->BufContains((char*)&key));
   }
-
-  {
-    char* buf = list->AllocateKey(sizeof(Key));
-    Key key = 33;
-    memcpy(buf, &key, sizeof(Key));
-    bool res = list->Insert(buf);
-    printf("Insert 33 %s\n", res ? "succ" : "fail");
-    InlineSkipList<TestComparator>::Iterator iter(list);
-    iter.SeekToFirst();
-    while (iter.Valid()) {
-      printf("%lu, ", Decode(iter.key()));
-      iter.Next();
-    }
-    printf("\n");
-  }
-
   
 }
 
-TEST_F(InlineSkipTest, InsertAndLookup) {
-  const int N = 2000;
+
+TEST_F(InlineSkipTest, BufInsert2) {
+  const int N = 1000;
   const int R = 5000;
   Random rnd(1000);
-  std::set<Key> keys;
   TestComparator cmp;
+  std::unordered_set<int> mset;
   InlineSkipList<TestComparator>* list(InlineSkipList<TestComparator>::CreateSkiplist(cmp));
   for (int i = 0; i < N; i++) {
-    Key key = rnd.Next() % R;
-    if (keys.insert(key).second) {
-      char* buf = list->AllocateKey(sizeof(Key));
-      memcpy(buf, &key, sizeof(Key));
-      list->Insert(buf);
+    size_t key = random() % 100000;
+    while (mset.count(key) != 0) {
+      key = random() % 100000;
     }
-  }
-
-  for (Key i = 0; i < R; i++) {
-    if (list->Contains(Encode(&i))) {
-      ASSERT_EQ(keys.count(i), 1U);
-    } else {
-      ASSERT_EQ(keys.count(i), 0U);
-    }
-  }
-
-  // Simple iterator tests
-  {
-    InlineSkipList<TestComparator>::Iterator iter(list);
-    ASSERT_TRUE(!iter.Valid());
-
-    uint64_t zero = 0;
-    iter.Seek(Encode(&zero));
-    ASSERT_TRUE(iter.Valid());
-    ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
-
-    uint64_t max_key = R - 1;
-    iter.SeekForPrev(Encode(&max_key));
-    ASSERT_TRUE(iter.Valid());
-    ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
-
-    iter.SeekToFirst();
-    ASSERT_TRUE(iter.Valid());
-    ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
-
-    iter.SeekToLast();
-    ASSERT_TRUE(iter.Valid());
-    ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
-  }
-
-  // Forward iteration test
-  for (Key i = 0; i < R; i++) {
-    InlineSkipList<TestComparator>::Iterator iter(list);
-    iter.Seek(Encode(&i));
-
-    // Compare against model iterator
-    std::set<Key>::iterator model_iter = keys.lower_bound(i);
-    for (int j = 0; j < 3; j++) {
-      if (model_iter == keys.end()) {
-        ASSERT_TRUE(!iter.Valid());
-        break;
-      } else {
-        ASSERT_TRUE(iter.Valid());
-        ASSERT_EQ(*model_iter, Decode(iter.key()));
-        ++model_iter;
-        iter.Next();
-      }
-    }
-  }
-
-  // Backward iteration test
-  for (Key i = 0; i < R; i++) {
-    InlineSkipList<TestComparator>::Iterator iter(list);
-    iter.SeekForPrev(Encode(&i));
-
-    // Compare against model iterator
-    std::set<Key>::iterator model_iter = keys.upper_bound(i);
-    for (int j = 0; j < 3; j++) {
-      if (model_iter == keys.begin()) {
-        ASSERT_TRUE(!iter.Valid());
-        break;
-      } else {
-        ASSERT_TRUE(iter.Valid());
-        ASSERT_EQ(*--model_iter, Decode(iter.key()));
-        iter.Prev();
-      }
-    }
+    list->BufInsert((char*)&key);
+    mset.insert(key);
   }
 }
 
-TEST_F(InlineSkipTest, InsertWithHint_Sequential) {
-  const int N = 100000;  
-  TestComparator cmp;
-  TestInlineSkipList* list(TestInlineSkipList::CreateSkiplist(cmp));
-  void* hint = nullptr;
-  for (int i = 0; i < N; i++) {
-    Key key = i;
-    InsertWithHint(list, key, &hint);
-  }
-  Validate(list);
-}
+// TEST_F(InlineSkipTest, InsertAndLookup) {
+//   const int N = 2000;
+//   const int R = 5000;
+//   Random rnd(1000);
+//   std::set<Key> keys;
+//   TestComparator cmp;
+//   InlineSkipList<TestComparator>* list(InlineSkipList<TestComparator>::CreateSkiplist(cmp));
+//   for (int i = 0; i < N; i++) {
+//     Key key = rnd.Next() % R;
+//     if (keys.insert(key).second) {
+//       char* buf = list->AllocateKey(sizeof(Key));
+//       memcpy(buf, &key, sizeof(Key));
+//       list->Insert(buf);
+//     }
+//   }
 
-TEST_F(InlineSkipTest, InsertWithHint_MultipleHints) {
-  const int N = 100000;
-  const int S = 100;
-  Random rnd(534);
-  TestComparator cmp;
-  TestInlineSkipList* list(TestInlineSkipList::CreateSkiplist(cmp));
-  void* hints[S];
-  Key last_key[S];
-  for (int i = 0; i < S; i++) {
-    hints[i] = nullptr;
-    last_key[i] = 0;
-  }
-  for (int i = 0; i < N; i++) {
-    Key s = rnd.Uniform(S);
-    Key key = (s << 32) + (++last_key[s]);
-    InsertWithHint(list, key, &hints[s]);
-  }
-  Validate(list);
-}
+//   for (Key i = 0; i < R; i++) {
+//     if (list->Contains(Encode(&i))) {
+//       ASSERT_EQ(keys.count(i), 1U);
+//     } else {
+//       ASSERT_EQ(keys.count(i), 0U);
+//     }
+//   }
 
-TEST_F(InlineSkipTest, InsertWithHint_MultipleHintsRandom) {
-  const int N = 100000;
-  const int S = 100;
-  Random rnd(534);
-  TestComparator cmp;
-  TestInlineSkipList* list(TestInlineSkipList::CreateSkiplist(cmp));
-  void* hints[S];
-  for (int i = 0; i < S; i++) {
-    hints[i] = nullptr;
-  }
-  for (int i = 0; i < N; i++) {
-    Key s = rnd.Uniform(S);
-    Key key = (s << 32) + rnd.Next();
-    InsertWithHint(list, key, &hints[s]);
-  }
-  Validate(list);
-}
+//   // Simple iterator tests
+//   {
+//     InlineSkipList<TestComparator>::Iterator iter(list);
+//     ASSERT_TRUE(!iter.Valid());
 
-TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
-  const int N = 100000;
-  const int S1 = 100;
-  const int S2 = 100;
-  Random rnd(534);
-  TestComparator cmp;
-  TestInlineSkipList* list(TestInlineSkipList::CreateSkiplist(cmp));
-  std::unordered_set<Key> used;
-  Key with_hint[S1];
-  Key without_hint[S2];
+//     uint64_t zero = 0;
+//     iter.Seek(Encode(&zero));
+//     ASSERT_TRUE(iter.Valid());
+//     ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
+
+//     uint64_t max_key = R - 1;
+//     iter.SeekForPrev(Encode(&max_key));
+//     ASSERT_TRUE(iter.Valid());
+//     ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
+
+//     iter.SeekToFirst();
+//     ASSERT_TRUE(iter.Valid());
+//     ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
+
+//     iter.SeekToLast();
+//     ASSERT_TRUE(iter.Valid());
+//     ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
+//   }
+
+//   // Forward iteration test
+//   for (Key i = 0; i < R; i++) {
+//     InlineSkipList<TestComparator>::Iterator iter(list);
+//     iter.Seek(Encode(&i));
+
+//     // Compare against model iterator
+//     std::set<Key>::iterator model_iter = keys.lower_bound(i);
+//     for (int j = 0; j < 3; j++) {
+//       if (model_iter == keys.end()) {
+//         ASSERT_TRUE(!iter.Valid());
+//         break;
+//       } else {
+//         ASSERT_TRUE(iter.Valid());
+//         ASSERT_EQ(*model_iter, Decode(iter.key()));
+//         ++model_iter;
+//         iter.Next();
+//       }
+//     }
+//   }
+
+//   // Backward iteration test
+//   for (Key i = 0; i < R; i++) {
+//     InlineSkipList<TestComparator>::Iterator iter(list);
+//     iter.SeekForPrev(Encode(&i));
+
+//     // Compare against model iterator
+//     std::set<Key>::iterator model_iter = keys.upper_bound(i);
+//     for (int j = 0; j < 3; j++) {
+//       if (model_iter == keys.begin()) {
+//         ASSERT_TRUE(!iter.Valid());
+//         break;
+//       } else {
+//         ASSERT_TRUE(iter.Valid());
+//         ASSERT_EQ(*--model_iter, Decode(iter.key()));
+//         iter.Prev();
+//       }
+//     }
+//   }
+// }
+
+// TEST_F(InlineSkipTest, InsertWithHint_Sequential) {
+//   const int N = 100000;  
+//   TestComparator cmp;
+//   TestInlineSkipList* list(TestInlineSkipList::CreateSkiplist(cmp));
+//   void* hint = nullptr;
+//   for (int i = 0; i < N; i++) {
+//     Key key = i;
+//     InsertWithHint(list, key, &hint);
+//   }
+//   Validate(list);
+// }
+
+// TEST_F(InlineSkipTest, InsertWithHint_MultipleHints) {
+//   const int N = 100000;
+//   const int S = 100;
+//   Random rnd(534);
+//   TestComparator cmp;
+//   TestInlineSkipList* list(TestInlineSkipList::CreateSkiplist(cmp));
+//   void* hints[S];
+//   Key last_key[S];
+//   for (int i = 0; i < S; i++) {
+//     hints[i] = nullptr;
+//     last_key[i] = 0;
+//   }
+//   for (int i = 0; i < N; i++) {
+//     Key s = rnd.Uniform(S);
+//     Key key = (s << 32) + (++last_key[s]);
+//     InsertWithHint(list, key, &hints[s]);
+//   }
+//   Validate(list);
+// }
+
+// TEST_F(InlineSkipTest, InsertWithHint_MultipleHintsRandom) {
+//   const int N = 100000;
+//   const int S = 100;
+//   Random rnd(534);
+//   TestComparator cmp;
+//   TestInlineSkipList* list(TestInlineSkipList::CreateSkiplist(cmp));
+//   void* hints[S];
+//   for (int i = 0; i < S; i++) {
+//     hints[i] = nullptr;
+//   }
+//   for (int i = 0; i < N; i++) {
+//     Key s = rnd.Uniform(S);
+//     Key key = (s << 32) + rnd.Next();
+//     InsertWithHint(list, key, &hints[s]);
+//   }
+//   Validate(list);
+// }
+
+// TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
+//   const int N = 100000;
+//   const int S1 = 100;
+//   const int S2 = 100;
+//   Random rnd(534);
+//   TestComparator cmp;
+//   TestInlineSkipList* list(TestInlineSkipList::CreateSkiplist(cmp));
+//   std::unordered_set<Key> used;
+//   Key with_hint[S1];
+//   Key without_hint[S2];
 
 
 
-  void* hints[S1];
-  for (int i = 0; i < S1; i++) {
-    hints[i] = nullptr;
-    while (true) {
-      Key s = rnd.Next();
-      if (used.insert(s).second) {
-        with_hint[i] = s;
-        break;
-      }
-    }
-  }
-  for (int i = 0; i < S2; i++) {
-    while (true) {
-      Key s = rnd.Next();
-      if (used.insert(s).second) {
-        without_hint[i] = s;
-        break;
-      }
-    }
-  }
-  for (int i = 0; i < N; i++) {
-    Key s = rnd.Uniform(S1 + S2);
-    if (s < S1) {
-      Key key = (with_hint[s] << 32) + rnd.Next();
-      InsertWithHint(list, key, &hints[s]);
-    } else {
-      Key key = (without_hint[s - S1] << 32) + rnd.Next();
-      Insert(list, key);
-    }
-  }
-  Validate(list);
-}
+//   void* hints[S1];
+//   for (int i = 0; i < S1; i++) {
+//     hints[i] = nullptr;
+//     while (true) {
+//       Key s = rnd.Next();
+//       if (used.insert(s).second) {
+//         with_hint[i] = s;
+//         break;
+//       }
+//     }
+//   }
+//   for (int i = 0; i < S2; i++) {
+//     while (true) {
+//       Key s = rnd.Next();
+//       if (used.insert(s).second) {
+//         without_hint[i] = s;
+//         break;
+//       }
+//     }
+//   }
+//   for (int i = 0; i < N; i++) {
+//     Key s = rnd.Uniform(S1 + S2);
+//     if (s < S1) {
+//       Key key = (with_hint[s] << 32) + rnd.Next();
+//       InsertWithHint(list, key, &hints[s]);
+//     } else {
+//       Key key = (without_hint[s - S1] << 32) + rnd.Next();
+//       Insert(list, key);
+//     }
+//   }
+//   Validate(list);
+// }
 
 #ifndef ROCKSDB_VALGRIND_RUN
 // We want to make sure that with a single writer and multiple
@@ -588,26 +656,26 @@ const uint32_t ConcurrentTest::K;
 
 // Simple test that does single-threaded testing of the ConcurrentTest
 // scaffolding.
-TEST_F(InlineSkipTest, ConcurrentReadWithoutThreads) {
-  ConcurrentTest test;
-  Random rnd(random());
-  for (int i = 0; i < 10000; i++) {
-    test.ReadStep(&rnd);
-    test.WriteStep(&rnd);
-  }
-}
+// TEST_F(InlineSkipTest, ConcurrentReadWithoutThreads) {
+//   ConcurrentTest test;
+//   Random rnd(random());
+//   for (int i = 0; i < 10000; i++) {
+//     test.ReadStep(&rnd);
+//     test.WriteStep(&rnd);
+//   }
+// }
 
-TEST_F(InlineSkipTest, ConcurrentInsertWithoutThreads) {
-  ConcurrentTest test;
-  Random rnd(random());
-  for (int i = 0; i < 10000; i++) {
-    test.ReadStep(&rnd);
-    uint32_t base = rnd.Next();
-    for (int j = 0; j < 4; ++j) {
-      test.ConcurrentWriteStep((base + j) % ConcurrentTest::K);
-    }
-  }
-}
+// TEST_F(InlineSkipTest, ConcurrentInsertWithoutThreads) {
+//   ConcurrentTest test;
+//   Random rnd(random());
+//   for (int i = 0; i < 10000; i++) {
+//     test.ReadStep(&rnd);
+//     uint32_t base = rnd.Next();
+//     for (int j = 0; j < 4; ++j) {
+//       test.ConcurrentWriteStep((base + j) % ConcurrentTest::K);
+//     }
+//   }
+// }
 
 
 #endif  // ROCKSDB_VALGRIND_RUN

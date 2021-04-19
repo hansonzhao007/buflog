@@ -43,6 +43,25 @@ TEST(DataLog, DramIterator) {
     }
 }
 
+TEST(BufVec, Operation) {
+    BufVec node;
+
+    for (int i = 0; i < 8; ++i) {
+        EXPECT_TRUE(node.Insert(random()));
+    }
+
+    EXPECT_FALSE(node.Insert(0));
+
+    node.Sort();
+
+    auto iter = node.Begin();
+    while (iter.Valid()) {
+        printf("%lu, ", *iter);
+        ++iter;
+    }
+
+    printf("\n");
+}
 
 TEST(SortedBufNode, PutGet) {
     SortedBufNode buf_node;
@@ -135,10 +154,10 @@ TEST(SortedBufNode, MaskLastN) {
 
 
 TEST(WriteBuffer, Iterator) {
-    WriteBuffer<4> buf_node;
+    WriteBuffer<8> buf_node;
 
     char val[128] = "value 123";
-    for (int i = 60; i > 0; i--) {
+    for (int i = 40; i > 0; i--) {
         bool res = buf_node.Put(i, val);
         EXPECT_TRUE(res);
     }

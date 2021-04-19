@@ -21,12 +21,10 @@
 #define BUFLOG_FLUSH(addr) asm volatile ("clwb (%0)" :: "r"(addr))
 #define BUFLOG_FLUSHFENCE asm volatile ("sfence" ::: "memory")
 
-
 inline void BUFLOG_COMPILER_FENCE() {
     std::atomic_thread_fence(std::memory_order_release);
     // asm volatile("" : : : "memory"); /* Compiler fence. */
 }
-
 
 namespace buflog {
 
@@ -865,6 +863,94 @@ public:
 
 static_assert(sizeof(SortedBufNode) == 256, "SortBufNode is not 256 byte");
 
+struct BufVec {
+    static constexpr int kValNum = 8;
+   
+    BufVec() {
+        memset(keys_, 0, sizeof(size_t) * kValNum);
+        cur_ = 0;
+    }
+
+    void Reset() {
+        memset(keys_, 0, sizeof(size_t) * kValNum);
+        cur_ = 0;
+    }
+    
+    void Sort() {
+        std::sort(keys_, keys_ + cur_);
+    }
+
+    bool Contains(size_t key) {
+        auto compare_key_vec = _mm512_set1_epi64(key);
+        auto stored_key_vec  = _mm512_loadu_epi64(reinterpret_cast<const __m512i*>(keys_));
+        uint8_t mask = _mm512_cmpeq_epi64_mask(compare_key_vec, stored_key_vec);
+        if (mask != 0) return true;
+        return false;
+    }
+
+    bool Insert(size_t k) {
+        if (cur_ >= kValNum - 1) {
+            return false;
+        }
+        else {
+            keys_[cur_++] = k;
+            return true;
+        }
+    }
+
+    bool CompactInsert(size_t k) {
+        if (cur_ != kValNum - 1) {
+            return false;
+        }
+        keys_[cur_++] = k;
+        return true;
+    }
+
+    inline void Lock() {
+        lock_.lock();
+    }
+
+    inline void Unlock() {
+        lock_.unlock();
+    }
+
+    int Count() const {
+        return cur_;
+    }
+
+    class Iterator {
+    public:
+        Iterator(const size_t* _keys, int i) :
+            keys_(_keys),
+            cur_(i) {}
+        
+        inline bool Valid() {
+            return cur_ < kValNum;
+        }
+
+        // Prefix ++ overload
+        inline Iterator& operator++() {
+            cur_++;
+            return *this;
+        }
+
+        size_t operator*() const {
+            return keys_[cur_];
+        }
+
+        const size_t* keys_;
+        int cur_;
+    };
+
+    Iterator Begin() {
+        return Iterator(keys_, 0);
+    }
+
+    size_t keys_[kValNum];
+    int cur_;
+    AtomicSpinLock lock_;    
+};
+
 // A group of SortedBufNode
 template<size_t NUM>
 class WriteBuffer {
@@ -1040,14 +1126,6 @@ public:
     size_t local_depth;
 };
 
-class BufNode128 {
-public:
-
-
-private:
-
-
-};
 
 }; // end of namespace buflog
 

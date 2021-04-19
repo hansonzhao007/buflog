@@ -40,11 +40,14 @@
 // ... prev vs. next pointer ordering ...
 //
 
-#pragma once
+#ifndef SKIPLIST_BUFLOG_H_
+#define SKIPLIST_BUFLOG_H_
+
 #include <assert.h>
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>
+#include <vector>
 #include <type_traits>
 #include <stdint.h>
 #include <random>
@@ -56,6 +59,7 @@ const size_t SKIPLIST_PMEM_SIZE = ((100LU << 30));
 
 // buflog
 #include "src/buflog.h"
+#include "src/logger.h"
 
 #if defined(__GNUC__) && __GNUC__ >= 4
 #define LIKELY(x)   (__builtin_expect((x), 1))
@@ -66,6 +70,17 @@ const size_t SKIPLIST_PMEM_SIZE = ((100LU << 30));
 #endif
 
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
+
+const int kBufNodeLevel = 2;
+
+#define CACHE_LINE_SIZE ((64))
+inline void sfence() { asm volatile("sfence" ::: "memory"); }
+inline void clflush(char *data, int len) {
+  volatile char *ptr = (char *)((unsigned long)data & ~(CACHE_LINE_SIZE - 1));
+  for (; ptr < data + len; ptr += CACHE_LINE_SIZE) {
+    _mm_clwb((void*)ptr);
+  }  
+}
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -164,13 +179,26 @@ Random* Random::GetTLSInstance() {
   return rv;
 }
 
+
+// !buflog: node meta
+struct NodeMeta {
+  uint64_t height: 16;
+  uint64_t bufnode_ptr: 48;
+};
+
+static_assert(sizeof(NodeMeta) == 8, "Meta size is not 8 byte");
+
+
 template <class Comparator>
 class InlineSkipList {
  private:
-  struct Node;
-  struct Splice;
 
+  struct Node;
+  struct BufNode;
+  struct Splice;
  public:
+  
+
   using DecodedKey = \
     typename std::remove_reference<Comparator>::type::DecodedType;
 
@@ -304,6 +332,18 @@ class InlineSkipList {
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const char* key) const;
 
+  // !buflog: insert a raw key
+  bool BufInsert(const char* key);
+
+  // !buflog:
+  bool BufContains(const char* key) const;
+
+  // !buflog:
+  // Out of place compact the keys in buffer in this partition.
+  // Generate splice_partition.
+  // Return first_key, next bufnode after the
+  size_t Compact(Node* bufnode, Splice& splice_partition, Node*& next_bufnode, bool with_head);
+
   // Return estimated number of entries smaller than `key`.
   uint64_t EstimateCount(const char* key) const;
 
@@ -324,6 +364,17 @@ class InlineSkipList {
 
     // Returns true iff the iterator is positioned at a valid node.
     bool Valid() const;
+
+
+    // !buflog
+    // Returns the height of the node
+    int Height() const;
+
+    // !buflog
+    // Returns the bufnode pointer
+    inline struct BufNode* BufNode() {
+      return node_->BufNode();
+    }
 
     // Returns the key at the current position.
     // REQUIRES: Valid()
@@ -368,10 +419,6 @@ class InlineSkipList {
               return static_cast<char*>(RP_malloc(size));
           }
 
-          inline char* Calloc(size_t num, size_t size) {
-              return static_cast<char*>(RP_calloc(num, size));
-          }
-
           inline void Release(char* addr) {
               RP_free(addr);
           }
@@ -397,7 +444,7 @@ class InlineSkipList {
 
   int RandomHeight();
 
-  Node* AllocateNode(size_t key_size, int height);
+  Node* AllocateNode(size_t key_size, int height, bool with_buf = false);
 
   bool Equal(const char* a, const char* b) const {
     return (compare_(a, b) == 0);
@@ -415,6 +462,9 @@ class InlineSkipList {
   // Returns the earliest node with a key >= key.
   // Return nullptr if there is no such node.
   Node* FindGreaterOrEqual(const char* key) const;
+
+  // !buflog:
+  Node* FindGreaterOrEqual(const char* key, BufNode*& closest_buf) const;
 
   // Return the latest node with a key < key.
   // Return head_ if there is no such node.
@@ -443,6 +493,11 @@ class InlineSkipList {
   void FindSpliceForLevel(const DecodedKey& key, Node* before, Node* after, int level,
                           Node** out_prev, Node** out_next);
 
+  // !buflog: traverse and record the closest bufnode
+  template<bool prefetch_before>
+  void FindSpliceForLevel(const DecodedKey& key, Node* before, Node* after, int level,
+                          Node** out_prev, Node** out_next, Node*& bufnode_ptr);
+
   // Recomputes Splice levels from highest_level (inclusive) down to
   // lowest_level (inclusive).
   void RecomputeSpliceLevels(const DecodedKey& key, Splice* splice,
@@ -462,8 +517,31 @@ struct InlineSkipList<Comparator>::Splice {
   int height_ = 0;
   Node** prev_;
   Node** next_;
+
+  std::string ToString() {
+    char buf[128];
+    std::string res;
+    for (int i = height_; i >= 0; i--) {
+      sprintf(buf, "L%2d: key: %d\n", i, Comparator().decode_key(prev_[i]->Key()));
+    }
+  }
 };
 
+template <class Comparator>
+class InlineSkipList<Comparator>::BufNode {
+  public:
+    buflog::BufVec buf; // 64 byte
+    
+    BufNode() {}
+
+    BufNode(const BufNode &p1) {
+      buf.cur_ = p1.buf.cur_;
+      memcpy(buf.keys_, p1.buf.keys_, buf.cur_ * sizeof(size_t));
+    }
+};
+
+
+static constexpr int kNodeKeyPos = 2;
 // The Node data type is more of a pointer into custom-managed memory than
 // a traditional C++ struct.  The key is stored in the bytes immediately
 // after the struct, and the next_ pointers for nodes with height > 1 are
@@ -476,6 +554,14 @@ struct InlineSkipList<Comparator>::Node {
   void StashHeight(const int height) {
     assert(sizeof(int) <= sizeof(next_[0]));
     memcpy(static_cast<void*>(&next_[0]), &height, sizeof(int));
+    NodeMeta* node_meta = reinterpret_cast<NodeMeta*>(&next_[1]);
+    node_meta->height = height;
+    node_meta->bufnode_ptr = 0;
+  }
+
+
+  NodeMeta* Meta(void) {
+    return reinterpret_cast<NodeMeta*>(&next_[1]);
   }
 
   // Retrieves the value passed to StashHeight.  Undefined after a call
@@ -486,7 +572,17 @@ struct InlineSkipList<Comparator>::Node {
     return rv;
   }
 
-  const char* Key() const { return reinterpret_cast<const char*>(&next_[1]); }
+  int Height() const {
+    const NodeMeta* node_meta = reinterpret_cast<const NodeMeta*>(&next_[1]);
+    return node_meta->height;
+  }
+
+  BufNode* BufNode() {
+    struct NodeMeta* node_meta = reinterpret_cast<struct NodeMeta*>(&next_[1]);
+    return node_meta->bufnode_ptr == 0 ? nullptr : (struct BufNode*)node_meta->bufnode_ptr;
+  }
+
+  const char* Key() const { return reinterpret_cast<const char*>(&next_[kNodeKeyPos]); }
 
   // Accessors/mutators for links.  Wrapped in methods so we can add
   // the appropriate barriers as necessary, and perform the necessary
@@ -505,6 +601,14 @@ struct InlineSkipList<Comparator>::Node {
     (&next_[0] - n)->store(x, std::memory_order_release);
     FLUSH(&next_[0] - n);
     FLUSHFENCE;
+  }
+
+
+  void SetNextNoFlush(int n, Node* x) {
+    assert(n >= 0);
+    // Use a 'release store' so that anybody who reads through this
+    // pointer observes a fully initialized version of the inserted node.
+    (&next_[0] - n)->store(x, std::memory_order_relaxed);
   }
 
   bool CASNext(int n, Node* expected, Node* x) {
@@ -560,6 +664,12 @@ inline void InlineSkipList<Comparator>::Iterator::SetList(
 template <class Comparator>
 inline bool InlineSkipList<Comparator>::Iterator::Valid() const {
   return node_ != nullptr;
+}
+
+template <class Comparator>
+inline int InlineSkipList<Comparator>::Iterator::Height() const {
+  assert(Valid());
+  return node_->Height();
 }
 
 template <class Comparator>
@@ -684,6 +794,50 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
   }
 }
 
+
+template <class Comparator>
+typename InlineSkipList<Comparator>::Node*
+InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key, BufNode*& closest_buf) const {
+  // Note: It looks like we could reduce duplication by implementing
+  // this function as FindLessThan(key)->Next(0), but we wouldn't be able
+  // to exit early on equality and the result wouldn't even be correct.
+  // A concurrent insert might occur after FindLessThan(key) but before
+  // we get a chance to call Next(0).
+  Node* x = head_;
+  closest_buf = reinterpret_cast<BufNode*>(x->BufNode());
+  int level = GetMaxHeight() - 1;
+  Node* last_bigger = nullptr;
+  const DecodedKey key_decoded = compare_.decode_key(key);
+  while (true) {
+    Node* next = x->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
+    // Make sure the lists are sorted
+    assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
+    // Make sure we haven't overshot during our search
+    assert(x == head_ || KeyIsAfterNode(key_decoded, x));
+    int cmp = (next == nullptr || next == last_bigger)
+                  ? 1
+                  : compare_(next->Key(), key_decoded);
+    if (cmp == 0 || (cmp > 0 && level == 0)) {
+      return next;
+    } else if (cmp < 0) {
+      // Keep searching in this list
+      x = next;
+    } else {
+      // Switch to next list, reuse compare_() result
+      // to next level
+      last_bigger = next;
+      if (x->Height() >= kBufNodeLevel + 1) {
+        closest_buf = reinterpret_cast<BufNode*>(x->BufNode());
+      }
+      level--;
+    }
+  }
+}
+
+
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev) const {
@@ -784,7 +938,7 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
       kBranching_(static_cast<uint16_t>(branching_factor)),
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
       compare_(cmp),
-      head_(AllocateNode(0, max_height)),
+      head_(AllocateNode(0, max_height, true)),
       max_height_(1),
       seq_splice_(AllocateSplice()) {
         
@@ -805,7 +959,7 @@ char* InlineSkipList<Comparator>::AllocateKey(size_t key_size) {
 
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
+InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height, bool with_buf) {
   auto prefix = sizeof(std::atomic<Node*>) * (height - 1);
 
   // prefix is space for the height - 1 pointers that we store before
@@ -813,7 +967,11 @@ InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
   // raw + prefix, and holds the bottom-mode (level 0) skip list pointer
   // next_[0].  key_size is the bytes for the key, which comes just after
   // the Node.
-  char* raw = allocator_.AllocateAligned(prefix + sizeof(Node) + key_size);
+
+  // !bufnode: after node, we add 8-byte meta
+  // |  2 Byte  |          6 byte         |
+  // |  height  |  pointer to buffer node |
+  char* raw = allocator_.AllocateAligned(prefix + sizeof(Node) + sizeof(NodeMeta) + key_size);
   Node* x = reinterpret_cast<Node*>(raw + prefix);
 
   // Once we've linked the node into the skip list we don't actually need
@@ -824,6 +982,12 @@ InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
   // using the pointers at the moment, StashHeight temporarily borrow
   // storage from next_[0] for that purpose.
   x->StashHeight(height);
+  if (with_buf && height >= kBufNodeLevel + 1) {
+    NodeMeta* node_meta = x->Meta();
+    node_meta->bufnode_ptr = (uint64_t) new BufNode();
+  }
+  FLUSH(raw);
+  FLUSHFENCE;
   return x;
 }
 
@@ -832,7 +996,7 @@ typename InlineSkipList<Comparator>::Splice*
 InlineSkipList<Comparator>::AllocateSplice() {
   // size of prev_ and next_
   size_t array_size = sizeof(Node*) * (kMaxHeight_ + 1);
-  char* raw = allocator_.AllocateAligned(sizeof(Splice) + array_size * 2);
+  char* raw = reinterpret_cast<char*>(malloc(sizeof(Splice) + array_size * 2));
   Splice* splice = reinterpret_cast<Splice*>(raw);
   splice->height_ = 0;
   splice->prev_ = reinterpret_cast<Node**>(raw + sizeof(Splice));
@@ -859,12 +1023,13 @@ bool InlineSkipList<Comparator>::Insert(const char* key) {
 
 template <class Comparator>
 bool InlineSkipList<Comparator>::InsertConcurrently(const char* key) {
-  Node* prev[kMaxPossibleHeight];
-  Node* next[kMaxPossibleHeight];
-  Splice splice;
-  splice.prev_ = prev;
-  splice.next_ = next;
-  return Insert<true>(key, &splice, false);
+  // Node* prev[kMaxPossibleHeight];
+  // Node* next[kMaxPossibleHeight];
+  // Splice splice;
+  // splice.prev_ = prev;
+  // splice.next_ = next;
+  // return Insert<true>(key, &splice, false);
+  return BufInsert(key);
 }
 
 template <class Comparator>
@@ -890,14 +1055,63 @@ bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
   return Insert<true>(key, splice, true);
 }
 
+
+template <class Comparator>
+template <bool prefetch_before>
+void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
+                                                    Node* before, Node* after,
+                                                    int level, Node** out_prev,
+                                                    Node** out_next, Node*& bufnode_ptr) {
+  while (true) {
+    Node* next = before->Next(level);
+    DEBUG("Node before 0x%lx: %ld, Node next 0x%lx: %ld, Node after 0x%lx: %ld, ",
+      before,
+      before == head_ ? -1 : *(size_t*)before->Key(),
+      next,
+      next == nullptr ? -1 : *(size_t*)next->Key(),
+      after,
+      after == nullptr ? -1 : *(size_t*)after->Key()      
+    );
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
+    if (prefetch_before == true) {
+      if (next != nullptr && level>0) {
+        PREFETCH(next->Next(level-1), 0, 1);
+      }
+    }
+    assert(before == head_ || next == nullptr ||
+           KeyIsAfterNode(next->Key(), before));
+    assert(before == head_ || KeyIsAfterNode(key, before));
+    if (next == after || !KeyIsAfterNode(key, next)) {
+      // found it. key <= next. to next level
+      *out_prev = before;
+      *out_next = next;
+      if (before->Height() >= kBufNodeLevel) {
+        bufnode_ptr = before;
+      }
+      return;
+    }
+    before = next;
+  }
+}
+
 template <class Comparator>
 template <bool prefetch_before>
 void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
                                                     Node* before, Node* after,
                                                     int level, Node** out_prev,
                                                     Node** out_next) {
-  while (true) {
+  while (true) {    
     Node* next = before->Next(level);
+    DEBUG("Node before 0x%lx: %ld, Node next 0x%lx: %ld, Node after 0x%lx: %ld, ",
+      before,
+      before == head_ ? -1 : *(size_t*)before->Key(),
+      next,
+      next == nullptr ? -1 : *(size_t*)next->Key(),
+      after,
+      after == nullptr ? -1 : *(size_t*)after->Key()      
+    );
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
     }
@@ -931,11 +1145,155 @@ void InlineSkipList<Comparator>::RecomputeSpliceLevels(const DecodedKey& key,
   }
 }
 
+
+template <class Comparator>
+bool InlineSkipList<Comparator>::BufInsert(const char* key) {
+  
+  Node* prev[kMaxPossibleHeight];
+  Node* next[kMaxPossibleHeight];
+  Splice splice;
+  splice.prev_ = prev;
+  splice.next_ = next;
+
+  const DecodedKey key_decoded = compare_.decode_key(key);
+  DEBUG("BufInsert key: %ld", key_decoded);
+
+retry:
+  int max_height = max_height_.load(std::memory_order_relaxed);  
+  splice.prev_[max_height] = head_;
+  splice.next_[max_height] = nullptr;
+  splice.height_ = max_height;
+  
+  // travel the skiplist
+  Node* closest_bufnode = head_;
+  for (int i = max_height - 1; i >= 0; --i) {
+    if (i < kBufNodeLevel) {
+      // if we are under kBufNodeLevel, it means we enter into a partiion
+      BufNode* bufnode = closest_bufnode->BufNode();
+      Node* next_bufnode = closest_bufnode->Next(kBufNodeLevel); 
+
+      bufnode->buf.Lock();
+
+      // After we acquire the lock, we may just finish a compaction.
+      // Need to check if this key still belongs to this partition
+      if (next_bufnode && KeyIsAfterNode(key, next_bufnode)) {
+        // means it belongs to next partition, retry
+        bufnode->buf.Unlock();
+        goto retry;
+      }
+
+      bool res = bufnode->buf.Insert(key_decoded);
+      if (res) {
+        bufnode->buf.Unlock();
+        return true;        
+      }
+      else {
+        // bufnode is full.
+        bool res = bufnode->buf.CompactInsert(key_decoded);
+        if (!res) {
+          printf("Cannot insert the last key to bufnode to compact\n");
+          exit(1);
+        }
+
+        // step 1. do compaction
+        Node* partition_prev[kMaxPossibleHeight];
+        Node* partition_next[kMaxPossibleHeight];
+        Splice splice_partition;
+        splice_partition.prev_ = partition_prev;
+        splice_partition.next_ = partition_next;
+        size_t first_key =  Compact(closest_bufnode, splice_partition, next_bufnode, false);                
+        DEBUG("skiplist height: %d, splice_partition.height: %d", max_height, splice_partition.height_);
+
+        // Step 2. re-search for the splice.prev
+        int prev_search_height = std::max(splice_partition.height_, max_height);
+        splice.prev_[prev_search_height] = head_;
+        splice.next_[prev_search_height] = nullptr;
+        splice.height_ = prev_search_height;
+        Node*  splice_prev_next = nullptr;
+        for (int l = prev_search_height - 1; l >= 0; l--) {
+          DEBUG("Search splice.prev[%d] for key: %ld", l, first_key);
+          FindSpliceForLevel<true>(first_key, splice.prev_[l + 1], splice_prev_next, l,
+                       &splice.prev_[l], &splice_prev_next);
+          DEBUG("Searched splice.prev[%d]: 0x%lx", l, splice.prev_[l]);
+        }
+
+        // step 3. re-search for the splice.next
+        if (next_bufnode == nullptr) {
+          // the last bufnode
+          for (int l = prev_search_height - 1; l >= 0; l--) {
+            splice.next_[l] = nullptr;
+            DEBUG("Searched splice.next[%d]: 0x%lx", l, splice.next_[l]);
+          }
+        } else {
+          const DecodedKey next_bufnode_key = compare_.decode_key(next_bufnode->Key());
+          Node* splice_prev = head_;
+          for (int l = prev_search_height - 1; l >= 0; l--) {
+            DEBUG("Search splice.next[%d] for key: %ld", l, next_bufnode_key);
+            FindSpliceForLevel<true>(next_bufnode_key, splice_prev, splice.next_[l + 1], l,
+                       &splice_prev, &splice.next_[l]);
+            DEBUG("Searched splice.next[%d]: 0x%lx", l, splice.next_[l]);
+          }
+        }
+
+        // Step 5. link splice_partition to later part of skiplist        
+        for (int l = 0; l < splice_partition.height_; ++l) {
+          DEBUG("Link splice_partition.next[%d] 0x%lx -> splice.next[%d] 0x%lx. %ld -> %ld", 
+            l,
+            splice_partition.next_[l],            
+            l,
+            splice.next_[l],
+            *(size_t*)splice_partition.next_[l]->Key(),
+            (splice.next_[l] ? *(size_t*)splice.next_[l]->Key() : -1)
+          );          
+          splice_partition.next_[l]->NoBarrier_SetNext(l, splice.next_[l]);
+        }
+
+        // Step 6. Set the new partition visible
+        for (int l = 0; l < splice_partition.height_; ++l) {
+          DEBUG("Link splice.prev[%d] 0x%lx -> splice_partition.prev[%d] 0x%lx. %ld -> %ld", 
+            l,
+            splice.prev_[l],            
+            l,
+            splice_partition.prev_[l],
+            splice.prev_[l] == head_ ? -1 : *(size_t*)splice.prev_[l]->Key(),
+            *(size_t*)splice_partition.prev_[l]->Key()
+            );
+          splice.prev_[l]->SetNext(l, splice_partition.prev_[l]);        
+        }
+
+        // Step 7. update skiplist height after compaction
+        int max_height = max_height_.load(std::memory_order_relaxed);
+        while (splice_partition.height_ > max_height) {
+          if (max_height_.compare_exchange_weak(max_height, splice_partition.height_)) {
+            // successfully updated it            
+            break;
+          }
+        }
+
+        // Step 6. Reset the bufnode
+        bufnode->buf.Reset();
+
+        bufnode->buf.Unlock();
+        return false;
+      }
+    }
+    else {
+      // still not sure if we enter the closest bufnode or not
+      FindSpliceForLevel<true>(key_decoded, splice.prev_[i + 1], splice.next_[i + 1], i,
+                        &splice.prev_[i], &splice.next_[i], closest_bufnode);
+    }
+  }
+
+  return false;
+}
+
+
+
 template <class Comparator>
 template <bool UseCAS>
 bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
                                         bool allow_partial_splice_fix) {
-  Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
+  Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - kNodeKeyPos;
   const DecodedKey key_decoded = compare_.decode_key(key);
   int height = x->UnstashHeight();
   assert(height >= 1 && height <= kMaxHeight_);
@@ -1138,12 +1496,137 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
 
 template <class Comparator>
 bool InlineSkipList<Comparator>::Contains(const char* key) const {
-  Node* x = FindGreaterOrEqual(key);
+  // Node* x = FindGreaterOrEqual(key);
+  // if (x != nullptr && Equal(key, x->Key())) {
+  //   return true;
+  // } else {
+  //   return false;
+  // }
+  return BufContains(key);
+}
+
+
+template <class Comparator>
+bool InlineSkipList<Comparator>::BufContains(const char* key) const {
+  BufNode* closest_buf = head_->BufNode();
+  Node* x = FindGreaterOrEqual(key, closest_buf);
+  const DecodedKey key_decoded = compare_.decode_key(key);
+  if (closest_buf->buf.Contains(key_decoded)) {
+    return true;
+  }
   if (x != nullptr && Equal(key, x->Key())) {
     return true;
   } else {
     return false;
   }
+}
+
+
+
+template <class Comparator>
+size_t InlineSkipList<Comparator>::Compact(Node* node, Splice& splice_partition, Node*& next_bufnode, bool with_head) {  
+  DEBUG("Compact node 0x%lx: %ld", node, node == head_ ? -1 : *(size_t*)node->Key());
+  std::vector<std::pair<size_t, int>> keys;
+
+  int total_height = 0;
+  int max_height = 0;
+  // collect keys in buffer
+  BufNode* bufnode = node->BufNode();
+  for (int i = 0; i < buflog::BufVec::kValNum; i++) {
+    DEBUG("collect on buf node %ld", bufnode->buf.keys_[i]);
+    int node_h = RandomHeight();
+    keys.push_back({bufnode->buf.keys_[i], node_h});
+    total_height += node_h;
+    max_height = std::max(max_height, node_h);
+  }
+
+  // collect keys on the skiplist
+  Node* cur = with_head ? node : node->Next(0);
+  Node* end = next_bufnode = node->Next(kBufNodeLevel);
+  int node_within_partition = 0;
+  while (cur != end) {
+    DEBUG("collect on list node 0x%lx: %ld", cur, cur != nullptr ? *(size_t*)cur->Key() : -1);
+    DecodedKey key_decoded = compare_.decode_key(cur->Key());
+    int cur_h = cur->Height();
+    keys.push_back({key_decoded, cur_h});
+    total_height += cur_h;
+    cur = cur->Next(0);
+    max_height = std::max(max_height, cur_h);
+    node_within_partition++;
+  }
+  splice_partition.height_ = max_height;
+
+  // Allocate all the space
+  size_t total_size = total_height * sizeof(std::atomic<Node*>) + (sizeof(NodeMeta) + sizeof(size_t)) * keys.size();
+  char* partition_addr = allocator_.AllocateAligned(total_size);
+
+  // compact the merge keys
+  std::sort(keys.begin(), keys.end());
+  size_t klen = keys.size();
+  int cur_height = 0;
+  int prev_height = 0;
+  char* addr = partition_addr;
+  for (size_t i = 0; i < klen; i++) {
+    size_t key = keys[i].first;
+    int node_h = keys[i].second;
+
+    // create new Node on existing addr
+    auto prefix = sizeof(std::atomic<Node*>) * (node_h - 1);
+    // char* raw = allocator_.AllocateAligned(prefix + sizeof(Node) + sizeof(NodeMeta) + sizeof(size_t));
+    Node* new_node = reinterpret_cast<Node*>(addr + prefix); 
+    memcpy(const_cast<char*>(new_node->Key()), &key, sizeof(size_t));
+    new_node->StashHeight(node_h);
+    DEBUG("Create node %lu (0x%lx), height: %d\n", key, new_node, node_h);
+    if (node_h >= kBufNodeLevel + 1) {
+      DEBUG("Create bufnode for %ld", key);
+      NodeMeta* node_meta = new_node->Meta();
+      node_meta->bufnode_ptr = (uint64_t) new BufNode();
+    }
+    addr += prefix + sizeof(Node) + sizeof(NodeMeta) + sizeof(size_t);
+
+    // link this node
+    if (i != 0) {
+      int link_height = std::min(cur_height, node_h);
+      for (int l = 0; l < link_height; l++) {
+        DEBUG("link node(0x%lx) next[%ld] -> node (0x%lx). %ld -> %ld",           
+          splice_partition.next_[l],
+          l,
+          new_node,
+          *(size_t*)splice_partition.next_[l]->Key(),
+          key
+          );
+        splice_partition.next_[l]->SetNextNoFlush(l, new_node);
+      }
+    }
+
+    // update splice_partition.prev
+    if (node_h > cur_height) {
+      for (int l = cur_height; l < node_h; ++l) {
+        DEBUG("update splice_partition.prev_[%d] 0x%lx\n", 
+          l,
+          new_node
+          );
+        splice_partition.prev_[l] = new_node;
+      }
+      cur_height = node_h;
+    }
+
+    // update splice_partition.next
+    for (int l = 0; l < node_h; ++l) {
+      DEBUG("update splice_partition.next_[%d] 0x%lx\n", 
+        l,
+        new_node
+        );
+      splice_partition.next_[l] = new_node;
+    }
+
+    prev_height = node_h;
+  }
+
+  clflush(addr, total_size); 
+  sfence();
+
+  return keys[0].first;
 }
 
 template <class Comparator>
@@ -1188,3 +1671,6 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
+
+
+#endif

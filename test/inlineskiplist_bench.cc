@@ -16,7 +16,13 @@
 #include <algorithm>
 #include <bitset>
 
-#include "Skiplist/inlineskiplist_pmem.h"
+#define BUFLOG
+
+#ifdef BUFLOG
+#include "Skiplist/inlineskiplist_buflog.h"
+#else
+#include "Skiplist/inlineskiplist.h"
+#endif
 
 #include "test_util.h"
 #include "histogram.h"
@@ -28,7 +34,6 @@
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
-
 
 DEFINE_uint32(batch, 100000, "report batch");
 DEFINE_uint32(readtime, 0, "if 0, then we read all keys");
@@ -641,9 +646,13 @@ public:
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid(); j++) {   
                 size_t* key = key_iterator.NextRef();
+                #ifndef BUFLOG
                 char* buf = skiplist_->AllocateKey(sizeof(Key));
-                memcpy(buf, key, sizeof(Key));
+                memcpy(buf, key, sizeof(Key));                
                 skiplist_->InsertConcurrently(buf);
+                #else
+                skiplist_->InsertConcurrently((char*)key);
+                #endif
             }
             thread->stats.FinishedBatchOp(j);
         }
@@ -664,12 +673,19 @@ public:
         thread->stats.Start();
         while (key_iterator.Valid()) {
             size_t* key = key_iterator.NextRef();
+
+            #ifndef BUFLOG
             char* buf = skiplist_->AllocateKey(sizeof(Key));
             memcpy(buf, key, sizeof(Key));
-
             auto time_start = NowNanos();
             skiplist_->InsertConcurrently(buf);
             auto time_duration = NowNanos() - time_start;
+            #else
+            auto time_start = NowNanos();
+            skiplist_->InsertConcurrently((char*)key);
+            auto time_duration = NowNanos() - time_start;
+            #endif
+
             thread->stats.hist_.Add(time_duration);   
         }
         write_end:
@@ -697,9 +713,13 @@ public:
                 size_t* key = key_iterator.NextRef();
                 
                 if (thread->ycsb_gen.NextA() == kYCSB_Write) {
+                    #ifndef BUFLOG
                     char* buf = skiplist_->AllocateKey(sizeof(Key));
                     memcpy(buf, key, sizeof(Key));
                     skiplist_->InsertConcurrently(buf);
+                    #else
+                    skiplist_->InsertConcurrently((char*)key);
+                    #endif
                     insert++;
                 } else {
                     auto ret = skiplist_->Contains(Encode(key));
@@ -733,9 +753,13 @@ public:
             for (; j < batch && key_iterator.Valid(); j++) {   
                 size_t* key = key_iterator.NextRef();                
                 if (thread->ycsb_gen.NextB() == kYCSB_Write) {
+                    #ifndef BUFLOG
                     char* buf = skiplist_->AllocateKey(sizeof(Key));
                     memcpy(buf, key, sizeof(Key));
                     skiplist_->InsertConcurrently(buf);
+                    #else
+                    skiplist_->InsertConcurrently((char*)key);
+                    #endif
                     insert++;
                 } else {
                     auto ret = skiplist_->Contains(Encode(key));
