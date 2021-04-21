@@ -1064,7 +1064,8 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
                                                     Node** out_next, Node*& bufnode_ptr) {
   while (true) {
     Node* next = before->Next(level);
-    DEBUG("Node before 0x%lx: %ld, Node next 0x%lx: %ld, Node after 0x%lx: %ld, ",
+    DEBUG("L %d, Node before 0x%lx: %ld, Node next 0x%lx: %ld, Node after 0x%lx: %ld, ",
+      level,
       before,
       before == head_ ? -1 : *(size_t*)before->Key(),
       next,
@@ -1104,7 +1105,8 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
                                                     Node** out_next) {
   while (true) {    
     Node* next = before->Next(level);
-    DEBUG("Node before 0x%lx: %ld, Node next 0x%lx: %ld, Node after 0x%lx: %ld, ",
+    DEBUG("L %d, Node before 0x%lx: %ld, Node next 0x%lx: %ld, Node after 0x%lx: %ld, ",
+      level,
       before,
       before == head_ ? -1 : *(size_t*)before->Key(),
       next,
@@ -1202,66 +1204,147 @@ retry:
         splice_partition.prev_ = partition_prev;
         splice_partition.next_ = partition_next;
         size_t first_key =  Compact(closest_bufnode, splice_partition, next_bufnode, false);                
-        DEBUG("skiplist height: %d, splice_partition.height: %d", max_height, splice_partition.height_);
+        
 
-        // Step 2. re-search for the splice.prev
-        int prev_search_height = std::max(splice_partition.height_, max_height);
-        splice.prev_[prev_search_height] = head_;
-        splice.next_[prev_search_height] = nullptr;
-        splice.height_ = prev_search_height;
-        Node*  splice_prev_next = nullptr;
-        for (int l = prev_search_height - 1; l >= 0; l--) {
-          DEBUG("Search splice.prev[%d] for key: %ld", l, first_key);
-          FindSpliceForLevel<true>(first_key, splice.prev_[l + 1], splice_prev_next, l,
-                       &splice.prev_[l], &splice_prev_next);
-          DEBUG("Searched splice.prev[%d]: 0x%lx", l, splice.prev_[l]);
+  //       ...  |__|
+  //       ...  |__| ----------------------------- |__|
+  //       ...  |__| ------------ |__| ----------- |__|       
+  //       ...  |__| --- |__| --- |__| --- |__| -- |__|
+  //             b1                bn               b2
+
+        int bufnode_height = std::min(max_height, closest_bufnode->Height());
+        int next_bufnode_height = next_bufnode ? next_bufnode->Height() : splice_partition.height_;
+        DEBUG("skiplist height: %d, bufnode height: %d, splice_partition.height: %d, next bufnode height: %d", 
+          max_height, 
+          bufnode_height,
+          splice_partition.height_,
+          next_bufnode_height);
+
+        int lower_part_height = std::min(bufnode_height, splice_partition.height_);
+        int higher_part_height = std::max(bufnode_height,splice_partition.height_);
+        if (next_bufnode) {          
+          lower_part_height = std::min(lower_part_height, next_bufnode_height);
+          higher_part_height = std::max(higher_part_height, next_bufnode_height);
         }
 
-        // step 3. re-search for the splice.next
-        if (next_bufnode == nullptr) {
-          // the last bufnode
-          for (int l = prev_search_height - 1; l >= 0; l--) {
-            splice.next_[l] = nullptr;
-            DEBUG("Searched splice.next[%d]: 0x%lx", l, splice.next_[l]);
+        // Step 2. Link the lower part, only need to connect this new partition with two bufnode        
+        for (int l = 0; l < lower_part_height; l++) {
+          splice_partition.next_[l]->NoBarrier_SetNext(l, next_bufnode);            
+        }
+
+        for (int l = 0; l < lower_part_height; l++) {
+          closest_bufnode->SetNext(l, splice_partition.prev_[l]);
+        }
+        
+        // Step 3. Link the higher part, only when splice_partition.height_ is higher than the two bufnode
+        if (splice_partition.height_ > bufnode_height || splice_partition.height_ > next_bufnode_height) {          
+          int prev_search_height = std::max(splice_partition.height_, max_height);
+          DEBUG("key %d, prev search height: %d, splice height: %d", 
+          key_decoded, 
+          prev_search_height, 
+          splice.height_);
+
+          if (splice.height_ < prev_search_height) {
+            // the partition is higher than skiplist, recompute splice
+            splice.prev_[prev_search_height] = head_;
+            splice.next_[prev_search_height] = nullptr;
+            splice.height_ = prev_search_height;
+            for (int i = prev_search_height - 1; i >= lower_part_height; --i) {
+              DEBUG("Recompute splice");
+              FindSpliceForLevel<true>(first_key, splice.prev_[i + 1], splice.next_[i + 1], i,
+                                &splice.prev_[i], &splice.next_[i]);
+            }
           }
-        } else {
-          const DecodedKey next_bufnode_key = compare_.decode_key(next_bufnode->Key());
-          Node* splice_prev = head_;
-          for (int l = prev_search_height - 1; l >= 0; l--) {
-            DEBUG("Search splice.next[%d] for key: %ld", l, next_bufnode_key);
-            FindSpliceForLevel<true>(next_bufnode_key, splice_prev, splice.next_[l + 1], l,
-                       &splice_prev, &splice.next_[l]);
-            DEBUG("Searched splice.next[%d]: 0x%lx", l, splice.next_[l]);
+          for (int i = lower_part_height; i < splice_partition.height_; i++) {
+            // link the new partition
+            while (true) {
+                DEBUG("Link splice_partition.next[%d] 0x%lx -> splice.next[%d] 0x%lx. %ld -> %ld", 
+                i,
+                splice_partition.next_[i],
+                i,
+                splice.next_[i],
+                *(size_t*)splice_partition.next_[i]->Key(),
+                (splice.next_[i] ? *(size_t*)splice.next_[i]->Key() : -1)
+              ); 
+              splice_partition.next_[i]->NoBarrier_SetNext(i, splice.next_[i]);        
+              if (splice.prev_[i]->CASNext(i, splice.next_[i], splice_partition.prev_[i])) {
+                // success
+                DEBUG("Link splice.prev[%d] 0x%lx -> splice_partition.prev[%d] 0x%lx. %ld -> %ld", 
+                i,
+                splice.prev_[i],
+                i,
+                splice_partition.prev_[i],
+                splice.prev_[i] == head_ ? -1 : *(size_t*)splice.prev_[i]->Key(),
+                *(size_t*)splice_partition.prev_[i]->Key()
+                );
+                break;
+              }
+
+              DEBUG("CAS retry");
+              FindSpliceForLevel<false>(first_key, splice.prev_[i], nullptr, i,
+                                  &splice.prev_[i], &splice.next_[i]);
+            }
           }
-        }
 
-        // Step 5. link splice_partition to later part of skiplist        
-        for (int l = 0; l < splice_partition.height_; ++l) {
-          DEBUG("Link splice_partition.next[%d] 0x%lx -> splice.next[%d] 0x%lx. %ld -> %ld", 
-            l,
-            splice_partition.next_[l],            
-            l,
-            splice.next_[l],
-            *(size_t*)splice_partition.next_[l]->Key(),
-            (splice.next_[l] ? *(size_t*)splice.next_[l]->Key() : -1)
-          );          
-          splice_partition.next_[l]->NoBarrier_SetNext(l, splice.next_[l]);
-        }
+          // DEBUG("Create higher partition");          
+          // // Step 2. re-search for the splice.prev                
+          // splice.prev_[prev_search_height] = head_;
+          // splice.next_[prev_search_height] = nullptr;
+          // splice.height_ = prev_search_height;
+          // Node*  splice_prev_next = nullptr;
+          // for (int l = prev_search_height - 1; l >= lower_part_height; l--) {
+          //   DEBUG("Search splice.prev[%d] for key: %ld", l, first_key);
+          //   FindSpliceForLevel<true>(first_key, splice.prev_[l + 1], splice_prev_next, l,
+          //               &splice.prev_[l], &splice_prev_next);
+          //   DEBUG("Searched splice.prev[%d]: 0x%lx", l, splice.prev_[l]);
+          // }          
 
-        // Step 6. Set the new partition visible
-        for (int l = 0; l < splice_partition.height_; ++l) {
-          DEBUG("Link splice.prev[%d] 0x%lx -> splice_partition.prev[%d] 0x%lx. %ld -> %ld", 
-            l,
-            splice.prev_[l],            
-            l,
-            splice_partition.prev_[l],
-            splice.prev_[l] == head_ ? -1 : *(size_t*)splice.prev_[l]->Key(),
-            *(size_t*)splice_partition.prev_[l]->Key()
-            );
-          splice.prev_[l]->SetNext(l, splice_partition.prev_[l]);        
-        }
+          // // step 3. re-search for the splice.next
+          // if (next_bufnode == nullptr) {
+          //   // the last bufnode
+          //   for (int l = prev_search_height - 1; l >= lower_part_height; l--) {
+          //     splice.next_[l] = nullptr;
+          //     DEBUG("Searched splice.next[%d]: 0x%lx", l, splice.next_[l]);
+          //   }
+          // } else {
+          //   const DecodedKey next_bufnode_key = compare_.decode_key(next_bufnode->Key());
+          //   Node* splice_prev = head_;
+          //   for (int l = prev_search_height - 1; l >= lower_part_height; l--) {
+          //     DEBUG("Search splice.next[%d] for key: %ld", l, next_bufnode_key);
+          //     FindSpliceForLevel<true>(next_bufnode_key, splice_prev, splice.next_[l + 1], l,
+          //               &splice_prev, &splice.next_[l]);
+          //     DEBUG("Searched splice.next[%d]: 0x%lx", l, splice.next_[l]);
+          //   }
+          // }
 
-        // Step 7. update skiplist height after compaction
+          // // Step 5. link splice_partition to later part of skiplist        
+          // for (int l = lower_part_height; l < splice_partition.height_; ++l) {
+          //   DEBUG("Link splice_partition.next[%d] 0x%lx -> splice.next[%d] 0x%lx. %ld -> %ld", 
+          //     l,
+          //     splice_partition.next_[l],
+          //     l,
+          //     splice.next_[l],
+          //     *(size_t*)splice_partition.next_[l]->Key(),
+          //     (splice.next_[l] ? *(size_t*)splice.next_[l]->Key() : -1)
+          //   );          
+          //   splice_partition.next_[l]->NoBarrier_SetNext(l, splice.next_[l]);
+          // }
+
+          // // Step 6. Set the new partition visible
+          // for (int l = lower_part_height; l < splice_partition.height_; ++l) {
+          //   DEBUG("Link splice.prev[%d] 0x%lx -> splice_partition.prev[%d] 0x%lx. %ld -> %ld", 
+          //     l,
+          //     splice.prev_[l],            
+          //     l,
+          //     splice_partition.prev_[l],
+          //     splice.prev_[l] == head_ ? -1 : *(size_t*)splice.prev_[l]->Key(),
+          //     *(size_t*)splice_partition.prev_[l]->Key()
+          //     );
+          //   splice.prev_[l]->SetNext(l, splice_partition.prev_[l]);        
+          // }          
+        }
+        
+        // Step 4. update skiplist height after compaction
         int max_height = max_height_.load(std::memory_order_relaxed);
         while (splice_partition.height_ > max_height) {
           if (max_height_.compare_exchange_weak(max_height, splice_partition.height_)) {
@@ -1270,7 +1353,7 @@ retry:
           }
         }
 
-        // Step 6. Reset the bufnode
+        // Step 8. Reset the bufnode
         bufnode->buf.Reset();
 
         bufnode->buf.Unlock();
@@ -1542,9 +1625,8 @@ size_t InlineSkipList<Comparator>::Compact(Node* node, Splice& splice_partition,
 
   // collect keys on the skiplist
   Node* cur = with_head ? node : node->Next(0);
-  Node* end = next_bufnode = node->Next(kBufNodeLevel);
   int node_within_partition = 0;
-  while (cur != end) {
+  while (cur && cur->Height() < kBufNodeLevel + 1) {
     DEBUG("collect on list node 0x%lx: %ld", cur, cur != nullptr ? *(size_t*)cur->Key() : -1);
     DecodedKey key_decoded = compare_.decode_key(cur->Key());
     int cur_h = cur->Height();
@@ -1555,6 +1637,7 @@ size_t InlineSkipList<Comparator>::Compact(Node* node, Splice& splice_partition,
     node_within_partition++;
   }
   splice_partition.height_ = max_height;
+  next_bufnode = cur;
 
   // Allocate all the space
   size_t total_size = total_height * sizeof(std::atomic<Node*>) + (sizeof(NodeMeta) + sizeof(size_t)) * keys.size();

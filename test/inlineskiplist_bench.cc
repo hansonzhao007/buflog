@@ -943,6 +943,11 @@ private:
     void PrintHeader() {
         fprintf(stdout, "------------------------------------------------\n");                   
         PrintEnvironment();
+        #ifndef BUFLOG
+        fprintf(stdout, "HashBuflog:            %false\n");
+        #else
+        fprintf(stdout, "HashBuflog:            %true\n");
+        #endif
         fprintf(stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf(stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);                      
         fprintf(stdout, "Read:                  %lu \n", (uint64_t)FLAGS_read);
