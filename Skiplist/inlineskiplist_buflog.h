@@ -1171,21 +1171,23 @@ retry:
   for (int i = max_height - 1; i >= 0; --i) {
     if (i < kBufNodeLevel) {
       // if we are under kBufNodeLevel, it means we enter into a partiion
-      BufNode* bufnode = closest_bufnode->BufNode();
-      Node* next_bufnode = closest_bufnode->Next(kBufNodeLevel); 
-
+      BufNode* bufnode = closest_bufnode->BufNode();      
       bufnode->buf.Lock();
 
+      Node* next_bufnode = closest_bufnode->Next(kBufNodeLevel);
+      DEBUG("BufInsert key: %ld. Lock the bufnode 0x%lx", key_decoded, bufnode);
       // After we acquire the lock, we may just finish a compaction.
       // Need to check if this key still belongs to this partition
       if (next_bufnode && KeyIsAfterNode(key, next_bufnode)) {
         // means it belongs to next partition, retry
         bufnode->buf.Unlock();
+        DEBUG("Retry BufInsert key: %ld", key_decoded);
         goto retry;
       }
 
       bool res = bufnode->buf.Insert(key_decoded);
       if (res) {
+        DEBUG("BufInsert key %d inserted", key_decoded);
         bufnode->buf.Unlock();
         return true;        
       }
@@ -1203,9 +1205,7 @@ retry:
         Splice splice_partition;
         splice_partition.prev_ = partition_prev;
         splice_partition.next_ = partition_next;
-        size_t first_key =  Compact(closest_bufnode, splice_partition, next_bufnode, false);                
-        
-
+        size_t first_key =  Compact(closest_bufnode, splice_partition, next_bufnode, false);
   //       ...  |__|
   //       ...  |__| ----------------------------- |__|
   //       ...  |__| ------------ |__| ----------- |__|       
@@ -1229,10 +1229,24 @@ retry:
 
         // Step 2. Link the lower part, only need to connect this new partition with two bufnode        
         for (int l = 0; l < lower_part_height; l++) {
+          DEBUG("Link splice_partition.next[%d] 0x%lx -> next_bufnode 0x%lx. %ld -> %ld", 
+            l,
+            splice_partition.next_[l],            
+            next_bufnode,
+            *(size_t*)splice_partition.next_[l]->Key(),
+            (next_bufnode ? *(size_t*)next_bufnode->Key() : -1)
+          ); 
           splice_partition.next_[l]->NoBarrier_SetNext(l, next_bufnode);            
         }
 
         for (int l = 0; l < lower_part_height; l++) {
+          DEBUG("Link closest_bufnode 0x%lx -> splice_partition.prev_[%d] 0x%lx. %ld -> %ld",
+            closest_bufnode,
+            l,
+            splice_partition.prev_[l],            
+            closest_bufnode != head_ ? *(size_t*)closest_bufnode->Key() : -1,
+            *(size_t*)splice_partition.prev_[l]->Key()
+          ); 
           closest_bufnode->SetNext(l, splice_partition.prev_[l]);
         }
         
@@ -1258,7 +1272,7 @@ retry:
           for (int i = lower_part_height; i < splice_partition.height_; i++) {
             // link the new partition
             while (true) {
-                DEBUG("Link splice_partition.next[%d] 0x%lx -> splice.next[%d] 0x%lx. %ld -> %ld", 
+              DEBUG("Link splice_partition.next[%d] 0x%lx -> splice.next[%d] 0x%lx. %ld -> %ld", 
                 i,
                 splice_partition.next_[i],
                 i,
@@ -1285,63 +1299,6 @@ retry:
                                   &splice.prev_[i], &splice.next_[i]);
             }
           }
-
-          // DEBUG("Create higher partition");          
-          // // Step 2. re-search for the splice.prev                
-          // splice.prev_[prev_search_height] = head_;
-          // splice.next_[prev_search_height] = nullptr;
-          // splice.height_ = prev_search_height;
-          // Node*  splice_prev_next = nullptr;
-          // for (int l = prev_search_height - 1; l >= lower_part_height; l--) {
-          //   DEBUG("Search splice.prev[%d] for key: %ld", l, first_key);
-          //   FindSpliceForLevel<true>(first_key, splice.prev_[l + 1], splice_prev_next, l,
-          //               &splice.prev_[l], &splice_prev_next);
-          //   DEBUG("Searched splice.prev[%d]: 0x%lx", l, splice.prev_[l]);
-          // }          
-
-          // // step 3. re-search for the splice.next
-          // if (next_bufnode == nullptr) {
-          //   // the last bufnode
-          //   for (int l = prev_search_height - 1; l >= lower_part_height; l--) {
-          //     splice.next_[l] = nullptr;
-          //     DEBUG("Searched splice.next[%d]: 0x%lx", l, splice.next_[l]);
-          //   }
-          // } else {
-          //   const DecodedKey next_bufnode_key = compare_.decode_key(next_bufnode->Key());
-          //   Node* splice_prev = head_;
-          //   for (int l = prev_search_height - 1; l >= lower_part_height; l--) {
-          //     DEBUG("Search splice.next[%d] for key: %ld", l, next_bufnode_key);
-          //     FindSpliceForLevel<true>(next_bufnode_key, splice_prev, splice.next_[l + 1], l,
-          //               &splice_prev, &splice.next_[l]);
-          //     DEBUG("Searched splice.next[%d]: 0x%lx", l, splice.next_[l]);
-          //   }
-          // }
-
-          // // Step 5. link splice_partition to later part of skiplist        
-          // for (int l = lower_part_height; l < splice_partition.height_; ++l) {
-          //   DEBUG("Link splice_partition.next[%d] 0x%lx -> splice.next[%d] 0x%lx. %ld -> %ld", 
-          //     l,
-          //     splice_partition.next_[l],
-          //     l,
-          //     splice.next_[l],
-          //     *(size_t*)splice_partition.next_[l]->Key(),
-          //     (splice.next_[l] ? *(size_t*)splice.next_[l]->Key() : -1)
-          //   );          
-          //   splice_partition.next_[l]->NoBarrier_SetNext(l, splice.next_[l]);
-          // }
-
-          // // Step 6. Set the new partition visible
-          // for (int l = lower_part_height; l < splice_partition.height_; ++l) {
-          //   DEBUG("Link splice.prev[%d] 0x%lx -> splice_partition.prev[%d] 0x%lx. %ld -> %ld", 
-          //     l,
-          //     splice.prev_[l],            
-          //     l,
-          //     splice_partition.prev_[l],
-          //     splice.prev_[l] == head_ ? -1 : *(size_t*)splice.prev_[l]->Key(),
-          //     *(size_t*)splice_partition.prev_[l]->Key()
-          //     );
-          //   splice.prev_[l]->SetNext(l, splice_partition.prev_[l]);        
-          // }          
         }
         
         // Step 4. update skiplist height after compaction
@@ -1367,6 +1324,7 @@ retry:
     }
   }
 
+  DEBUG("BufInsert fail. Should not enter here");
   return false;
 }
 

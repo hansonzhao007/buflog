@@ -504,7 +504,7 @@ public:
                 size_t ikey = key_iterator.Next();                 
                 auto ret = skiplist_->Contains(Encode(&ikey));
                 if (ret == false) {
-                    not_find++;
+                    not_find++;                    
                 }
             }
             thread->stats.FinishedBatchOp(j);
@@ -536,6 +536,7 @@ public:
                 auto ret = skiplist_->Contains(Encode(&ikey));
                 if (ret == false) {
                     not_find++;
+                    INFO("Not find %ld", ikey);
                 }
             }
             thread->stats.FinishedBatchOp(j);
