@@ -61,6 +61,8 @@ const size_t SKIPLIST_PMEM_SIZE = ((100LU << 30));
 #include "src/buflog.h"
 #include "src/logger.h"
 
+#define DRAM_CACHE
+
 #if defined(__GNUC__) && __GNUC__ >= 4
 #define LIKELY(x)   (__builtin_expect((x), 1))
 #define UNLIKELY(x) (__builtin_expect((x), 0))
@@ -83,7 +85,6 @@ inline void clflush(char *data, int len) {
 }
 
 namespace ROCKSDB_NAMESPACE {
-
 
 // A very simple random number generator.  Not especially good at
 // generating truly random bits, but good enough for our needs in this
@@ -182,8 +183,13 @@ Random* Random::GetTLSInstance() {
 
 // !buflog: node meta
 struct NodeMeta {
-  uint64_t height: 16;
-  uint64_t bufnode_ptr: 48;
+  uint64_t is_dram_node: 2;
+  uint64_t height: 14;
+  uint64_t bufnode_ptr: 48;   // for dram node, this is to store the Pmem Node pointer, for pmem node, this is used to store buffer pointer
+};
+
+struct PmemMeta {
+  uint64_t pmemnode_ptr;
 };
 
 static_assert(sizeof(NodeMeta) == 8, "Meta size is not 8 byte");
@@ -258,8 +264,6 @@ class InlineSkipList {
   //   InlineSkipList* root = RP_get_root<InlineSkipList<Comparator>>(0);
   //   return root;
   // }
-
-
 
   // Create a new InlineSkipList object that will use "cmp" for comparing
   // keys, and will allocate memory using "*allocator".  Objects allocated
@@ -342,7 +346,7 @@ class InlineSkipList {
   // Out of place compact the keys in buffer in this partition.
   // Generate splice_partition.
   // Return first_key, next bufnode after the
-  size_t Compact(Node* bufnode, Splice& splice_partition, Node*& next_bufnode, bool with_head);
+  size_t Compact(Node* bufnode, Splice& splice_partition, bool with_head);
 
   // Return estimated number of entries smaller than `key`.
   uint64_t EstimateCount(const char* key) const;
@@ -427,7 +431,9 @@ class InlineSkipList {
   Allocator const allocator_;  // Allocator used for allocations of nodes
   // Immutable after construction
   Comparator const compare_;
-  Node* const head_;
+  Node* head_;
+  Node* const head_dram_;
+  Node* const head_pmem_;
 
   // Modified only by Insert().  Read racily by readers, but stale
   // values are ok.
@@ -445,6 +451,8 @@ class InlineSkipList {
   int RandomHeight();
 
   Node* AllocateNode(size_t key_size, int height, bool with_buf = false);
+
+  Node* AllocateNodeDram(size_t key_size, int height);
 
   bool Equal(const char* a, const char* b) const {
     return (compare_(a, b) == 0);
@@ -547,21 +555,32 @@ static constexpr int kNodeKeyPos = 2;
 // after the struct, and the next_ pointers for nodes with height > 1 are
 // stored immediately _before_ the struct.  This avoids the need to include
 // any pointer or sizing data, which reduces per-node memory overheads.
+// |_| pmem_node_ptr (only dram node has this)
+// |_| next[-3]
+// |_| next[-2]
+// |_| next[-1]
+// |_| next[0]
+// |_| NodeMeta
+// |_| key
 template <class Comparator>
 struct InlineSkipList<Comparator>::Node {
   // Stores the height of the node in the memory location normally used for
   // next_[0].  This is used for passing data from AllocateKey to Insert.
-  void StashHeight(const int height) {
+  void StashHeight(const int height, bool is_dram = false) {
     assert(sizeof(int) <= sizeof(next_[0]));
     memcpy(static_cast<void*>(&next_[0]), &height, sizeof(int));
     NodeMeta* node_meta = reinterpret_cast<NodeMeta*>(&next_[1]);
     node_meta->height = height;
     node_meta->bufnode_ptr = 0;
+    node_meta->is_dram_node = is_dram;
   }
-
 
   NodeMeta* Meta(void) {
     return reinterpret_cast<NodeMeta*>(&next_[1]);
+  }
+
+  bool isDramNode(void) {
+    return reinterpret_cast<NodeMeta*>(&next_[1])->is_dram_node;
   }
 
   // Retrieves the value passed to StashHeight.  Undefined after a call
@@ -571,10 +590,26 @@ struct InlineSkipList<Comparator>::Node {
     memcpy(&rv, &next_[0], sizeof(int));
     return rv;
   }
-
+  
   int Height() const {
     const NodeMeta* node_meta = reinterpret_cast<const NodeMeta*>(&next_[1]);
     return node_meta->height;
+  }
+
+  void SetBufNode(BufNode* bf) {
+    assert(isDramNode());
+    reinterpret_cast<struct NodeMeta*>(&next_[1])->bufnode_ptr = (uint64_t)bf;
+  }
+  
+  void SetPmemNode(Node* pmem_node) {
+    assert(isDramNode());
+    reinterpret_cast<struct PmemMeta*>(&next_[0] - Height())->pmemnode_ptr = (uint64_t)pmem_node;    
+  }
+
+  Node* PmemNode(void) {
+    // only dram node can call this
+    assert(isDramNode());
+    return (Node*)reinterpret_cast<struct PmemMeta*>(&next_[0] - Height())->pmemnode_ptr;
   }
 
   BufNode* BufNode() {
@@ -938,8 +973,9 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
       kBranching_(static_cast<uint16_t>(branching_factor)),
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
       compare_(cmp),
-      head_(AllocateNode(0, max_height, true)),
-      max_height_(1),
+      head_pmem_(AllocateNode(0, max_height, true)),
+      head_dram_(AllocateNodeDram(0, max_height)),
+      max_height_(3),
       seq_splice_(AllocateSplice()) {
         
   assert(max_height > 0 && kMaxHeight_ == static_cast<uint32_t>(max_height));
@@ -948,13 +984,41 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
   assert(kScaledInverseBranching_ > 0);
 
   for (int i = 0; i < kMaxHeight_; ++i) {
-    head_->SetNext(i, nullptr);
+    head_pmem_->SetNext(i, nullptr);
+    head_dram_->SetNext(i, nullptr);
   }
+
+  // dram head node share the same buf with pmem head node
+  head_dram_->SetBufNode(head_pmem_->BufNode());
+  head_dram_->SetPmemNode(head_pmem_);
+
+  #ifdef DRAM_CACHE
+  head_ = head_dram_;
+  #else
+  head_ = head_pmem_;
+  #endif
 }
 
 template <class Comparator>
 char* InlineSkipList<Comparator>::AllocateKey(size_t key_size) {
   return const_cast<char*>(AllocateNode(key_size, RandomHeight())->Key());
+}
+
+
+template <class Comparator>
+typename InlineSkipList<Comparator>::Node*
+InlineSkipList<Comparator>::AllocateNodeDram(size_t key_size, int height) {
+  auto prefix = sizeof(std::atomic<Node*>) * (height);
+
+  // !bufnode: after node, we add 8-byte meta. before the next pointers, we 
+  // !add a pointer pointed to pmem node 
+  // |  2 Byte  |          6 byte         |
+  // |  height  |  pointer to buffer node |
+  char* raw = (char*)malloc(prefix + sizeof(Node) + sizeof(NodeMeta) + key_size);
+  Node* x = reinterpret_cast<Node*>(raw + prefix);
+
+  x->StashHeight(height, true);
+  return x;
 }
 
 template <class Comparator>
@@ -1175,6 +1239,9 @@ retry:
       bufnode->buf.Lock();
 
       Node* next_bufnode = closest_bufnode->Next(kBufNodeLevel);
+      #ifdef DRAM_CACHE
+      assert(next_bufnode == nullptr || next_bufnode->isDramNode());
+      #endif
       DEBUG("BufInsert key: %ld. Lock the bufnode 0x%lx", key_decoded, bufnode);
       // After we acquire the lock, we may just finish a compaction.
       // Need to check if this key still belongs to this partition
@@ -1205,7 +1272,9 @@ retry:
         Splice splice_partition;
         splice_partition.prev_ = partition_prev;
         splice_partition.next_ = partition_next;
-        size_t first_key =  Compact(closest_bufnode, splice_partition, next_bufnode, false);
+        DEBUG("next bufnode before 0x%lx, is dram node: %d", next_bufnode, next_bufnode ? next_bufnode->isDramNode() : 0);
+        size_t first_key =  Compact(closest_bufnode, splice_partition, false);
+        DEBUG("next bufnode after  0x%lx, is dram node: %d", next_bufnode, next_bufnode ? next_bufnode->isDramNode() : 0);
   //       ...  |__|
   //       ...  |__| ----------------------------- |__|
   //       ...  |__| ------------ |__| ----------- |__|       
@@ -1225,10 +1294,67 @@ retry:
         if (next_bufnode) {          
           lower_part_height = std::min(lower_part_height, next_bufnode_height);
           higher_part_height = std::max(higher_part_height, next_bufnode_height);
-        }
+        }        
 
-        // Step 2. Link the lower part, only need to connect this new partition with two bufnode        
+        // Step 2. Link the lower part, only need to connect this new partition within two bufnode        
         for (int l = 0; l < lower_part_height; l++) {
+  #ifdef DRAM_CACHE
+          bool is_splice_partition_next_dram = splice_partition.next_[l]->isDramNode();
+          bool is_next_bufnode_dram = next_bufnode ? next_bufnode->isDramNode() : false;
+          if (is_splice_partition_next_dram && is_next_bufnode_dram) {
+            DEBUG("Link dram - dram splice_partition.next[%d] 0x%lx -> next_bufnode 0x%lx. %ld -> %ld", 
+              l,
+              splice_partition.next_[l],            
+              next_bufnode,
+              *(size_t*)splice_partition.next_[l]->Key(),
+              (next_bufnode ? *(size_t*)next_bufnode->Key() : -1)
+            ); 
+            splice_partition.next_[l]->NoBarrier_SetNext(l, next_bufnode); // dram -> dram
+            DEBUG("Link pmem - pmem splice_partition.next[%d] 0x%lx -> next_bufnode 0x%lx. %ld -> %ld", 
+              l,
+              splice_partition.next_[l]->PmemNode(),
+              next_bufnode ? next_bufnode->PmemNode() : nullptr,
+              *(size_t*)splice_partition.next_[l]->PmemNode()->Key(),
+              (next_bufnode ? *(size_t*)next_bufnode->PmemNode()->Key() : -1)
+            ); 
+            splice_partition.next_[l]->PmemNode()->NoBarrier_SetNext(l, next_bufnode->PmemNode()); // pmem -> pmem
+          } else if (is_splice_partition_next_dram) {
+            DEBUG("Link dram - pmem splice_partition.next[%d] 0x%lx -> next_bufnode 0x%lx. %ld -> %ld", 
+              l,
+              splice_partition.next_[l],            
+              next_bufnode,
+              *(size_t*)splice_partition.next_[l]->Key(),
+              (next_bufnode ? *(size_t*)next_bufnode->Key() : -1)
+            );
+            splice_partition.next_[l]->NoBarrier_SetNext(l, next_bufnode); // dram -> pmem
+            DEBUG("Link pmem - pmem splice_partition.next[%d] 0x%lx -> next_bufnode 0x%lx. %ld -> %ld", 
+              l,
+              splice_partition.next_[l]->PmemNode(),            
+              next_bufnode,
+              *(size_t*)splice_partition.next_[l]->PmemNode()->Key(),
+              (next_bufnode ? *(size_t*)next_bufnode->Key() : -1)
+            );
+            splice_partition.next_[l]->PmemNode()->NoBarrier_SetNext(l, next_bufnode); // pmem -> pmem
+          } else if (is_next_bufnode_dram) {
+            DEBUG("Link pmem - pmem splice_partition.next[%d] 0x%lx -> next_bufnode 0x%lx. %ld -> %ld", 
+              l,
+              splice_partition.next_[l],            
+              next_bufnode->PmemNode(),
+              *(size_t*)splice_partition.next_[l]->Key(),
+              (next_bufnode ? *(size_t*)next_bufnode->PmemNode()->Key() : -1)
+            );
+            splice_partition.next_[l]->NoBarrier_SetNext(l, next_bufnode->PmemNode()); // pmem -> pmem
+          } else {
+            DEBUG("Link pmem - pmem splice_partition.next[%d] 0x%lx -> next_bufnode 0x%lx. %ld -> %ld", 
+              l,
+              splice_partition.next_[l],            
+              next_bufnode,
+              *(size_t*)splice_partition.next_[l]->Key(),
+              (next_bufnode ? *(size_t*)next_bufnode->Key() : -1)
+            );
+            splice_partition.next_[l]->NoBarrier_SetNext(l, next_bufnode); // pmem -> pmem
+          }
+  #else
           DEBUG("Link splice_partition.next[%d] 0x%lx -> next_bufnode 0x%lx. %ld -> %ld", 
             l,
             splice_partition.next_[l],            
@@ -1236,10 +1362,51 @@ retry:
             *(size_t*)splice_partition.next_[l]->Key(),
             (next_bufnode ? *(size_t*)next_bufnode->Key() : -1)
           ); 
-          splice_partition.next_[l]->NoBarrier_SetNext(l, next_bufnode);            
+          splice_partition.next_[l]->NoBarrier_SetNext(l, next_bufnode);
+  #endif
         }
 
         for (int l = 0; l < lower_part_height; l++) {
+  #ifdef DRAM_CACHE
+          bool is_splice_partition_prev_dram = splice_partition.prev_[l]->isDramNode();
+          if (is_splice_partition_prev_dram) {
+            DEBUG("Link dram - dram closest_bufnode 0x%lx -> splice_partition.prev_[%d] 0x%lx. %ld -> %ld",
+              closest_bufnode,
+              l,
+              splice_partition.prev_[l],            
+              closest_bufnode != head_ ? *(size_t*)closest_bufnode->Key() : -1,
+              *(size_t*)splice_partition.prev_[l]->Key()
+            ); 
+            closest_bufnode->SetNext(l, splice_partition.prev_[l]); // dram -> dram
+
+            DEBUG("Link pmem - pmem closest_bufnode 0x%lx -> splice_partition.prev_[%d] 0x%lx. %ld -> %ld",
+              closest_bufnode->PmemNode(),
+              l,
+              splice_partition.prev_[l]->PmemNode(),            
+              closest_bufnode != head_ ? *(size_t*)closest_bufnode->PmemNode()->Key() : -1,
+              *(size_t*)splice_partition.prev_[l]->PmemNode()->Key()
+            ); 
+            closest_bufnode->PmemNode()->SetNext(l, splice_partition.prev_[l]->PmemNode()); // pmem -> pmem
+          } else {
+            DEBUG("Link dram - pmem closest_bufnode 0x%lx -> splice_partition.prev_[%d] 0x%lx. %ld -> %ld",
+              closest_bufnode,
+              l,
+              splice_partition.prev_[l],            
+              closest_bufnode != head_ ? *(size_t*)closest_bufnode->Key() : -1,
+              *(size_t*)splice_partition.prev_[l]->Key()
+            ); 
+            closest_bufnode->SetNext(l, splice_partition.prev_[l]); // dram -> pmem
+
+            DEBUG("Link pmem - dram closest_bufnode 0x%lx -> splice_partition.prev_[%d] 0x%lx. %ld -> %ld",
+              closest_bufnode->PmemNode(),
+              l,
+              splice_partition.prev_[l],            
+              closest_bufnode != head_ ? *(size_t*)closest_bufnode->PmemNode()->Key() : -1,
+              *(size_t*)splice_partition.prev_[l]->Key()
+            ); 
+            closest_bufnode->PmemNode()->SetNext(l, splice_partition.prev_[l]); // pmem -> pmem
+          }
+  #else
           DEBUG("Link closest_bufnode 0x%lx -> splice_partition.prev_[%d] 0x%lx. %ld -> %ld",
             closest_bufnode,
             l,
@@ -1248,6 +1415,7 @@ retry:
             *(size_t*)splice_partition.prev_[l]->Key()
           ); 
           closest_bufnode->SetNext(l, splice_partition.prev_[l]);
+  #endif
         }
         
         // Step 3. Link the higher part, only when splice_partition.height_ is higher than the two bufnode
@@ -1258,20 +1426,50 @@ retry:
           prev_search_height, 
           splice.height_);
 
+          assert(lower_part_height >= kBufNodeLevel + 1);
+
           if (splice.height_ < prev_search_height) {
             // the partition is higher than skiplist, recompute splice
             splice.prev_[prev_search_height] = head_;
             splice.next_[prev_search_height] = nullptr;
             splice.height_ = prev_search_height;
             for (int i = prev_search_height - 1; i >= lower_part_height; --i) {
-              DEBUG("Recompute splice");
+              DEBUG("Recompute splice at level %d", i);
               FindSpliceForLevel<true>(first_key, splice.prev_[i + 1], splice.next_[i + 1], i,
                                 &splice.prev_[i], &splice.next_[i]);
             }
           }
-          for (int i = lower_part_height; i < splice_partition.height_; i++) {
+
+          for (int i = lower_part_height; i < splice_partition.height_; i++) {            
             // link the new partition
-            while (true) {
+            while (true) {              
+#ifdef DRAM_CACHE
+              assert(splice_partition.next_[i]->isDramNode());
+              assert(splice_partition.prev_[i]->isDramNode());
+              assert(splice.prev_[i]->isDramNode());
+              assert((splice.next_[i] == nullptr) || (splice.next_[i] && splice.next_[i]->isDramNode()) );
+              if (splice.next_[i]) {
+                splice_partition.next_[i]->NoBarrier_SetNext(i, splice.next_[i]); // dram -> dram
+                splice_partition.next_[i]->PmemNode()->NoBarrier_SetNext(i, splice.next_[i]->PmemNode()); // pmem -> pmem
+
+                if (  splice.prev_[i]->CASNext(i, splice.next_[i], splice_partition.prev_[i]) &&
+                      splice.prev_[i]->PmemNode()->CASNext(i, splice.next_[i]->PmemNode(), splice_partition.prev_[i]->PmemNode()) ) 
+                {
+                  break;
+                }
+
+              } else {
+                // splice.next_[i] is nullptr
+                splice_partition.next_[i]->NoBarrier_SetNext(i, splice.next_[i]); // dram -> nullptr
+                splice_partition.next_[i]->PmemNode()->NoBarrier_SetNext(i, splice.next_[i]); // pmem -> nullptr
+
+                if (  splice.prev_[i]->CASNext(i, splice.next_[i], splice_partition.prev_[i]) &&
+                      splice.prev_[i]->PmemNode()->CASNext(i, splice.next_[i], splice_partition.prev_[i]->PmemNode()) ) 
+                {
+                  break;
+                }
+              }              
+#else
               DEBUG("Link splice_partition.next[%d] 0x%lx -> splice.next[%d] 0x%lx. %ld -> %ld", 
                 i,
                 splice_partition.next_[i],
@@ -1280,7 +1478,7 @@ retry:
                 *(size_t*)splice_partition.next_[i]->Key(),
                 (splice.next_[i] ? *(size_t*)splice.next_[i]->Key() : -1)
               ); 
-              splice_partition.next_[i]->NoBarrier_SetNext(i, splice.next_[i]);        
+              splice_partition.next_[i]->NoBarrier_SetNext(i, splice.next_[i]);                      
               if (splice.prev_[i]->CASNext(i, splice.next_[i], splice_partition.prev_[i])) {
                 // success
                 DEBUG("Link splice.prev[%d] 0x%lx -> splice_partition.prev[%d] 0x%lx. %ld -> %ld", 
@@ -1293,7 +1491,7 @@ retry:
                 );
                 break;
               }
-
+#endif              
               DEBUG("CAS retry");
               FindSpliceForLevel<false>(first_key, splice.prev_[i], nullptr, i,
                                   &splice.prev_[i], &splice.next_[i]);
@@ -1318,6 +1516,9 @@ retry:
       }
     }
     else {
+      #ifdef DRAM_CACHE
+      assert(closest_bufnode->isDramNode());
+      #endif
       // still not sure if we enter the closest bufnode or not
       FindSpliceForLevel<true>(key_decoded, splice.prev_[i + 1], splice.next_[i + 1], i,
                         &splice.prev_[i], &splice.next_[i], closest_bufnode);
@@ -1327,8 +1528,6 @@ retry:
   DEBUG("BufInsert fail. Should not enter here");
   return false;
 }
-
-
 
 template <class Comparator>
 template <bool UseCAS>
@@ -1565,7 +1764,7 @@ bool InlineSkipList<Comparator>::BufContains(const char* key) const {
 
 
 template <class Comparator>
-size_t InlineSkipList<Comparator>::Compact(Node* node, Splice& splice_partition, Node*& next_bufnode, bool with_head) {  
+size_t InlineSkipList<Comparator>::Compact(Node* node /* bufnode */, Splice& splice_partition, bool with_head) {  
   DEBUG("Compact node 0x%lx: %ld", node, node == head_ ? -1 : *(size_t*)node->Key());
   std::vector<std::pair<size_t, int>> keys;
 
@@ -1595,9 +1794,8 @@ size_t InlineSkipList<Comparator>::Compact(Node* node, Splice& splice_partition,
     node_within_partition++;
   }
   splice_partition.height_ = max_height;
-  next_bufnode = cur;
 
-  // Allocate all the space
+  // Allocate all the space in pmem
   size_t total_size = total_height * sizeof(std::atomic<Node*>) + (sizeof(NodeMeta) + sizeof(size_t)) * keys.size();
   char* partition_addr = allocator_.AllocateAligned(total_size);
 
@@ -1618,17 +1816,73 @@ size_t InlineSkipList<Comparator>::Compact(Node* node, Splice& splice_partition,
     memcpy(const_cast<char*>(new_node->Key()), &key, sizeof(size_t));
     new_node->StashHeight(node_h);
     DEBUG("Create node %lu (0x%lx), height: %d\n", key, new_node, node_h);
-    if (node_h >= kBufNodeLevel + 1) {
-      DEBUG("Create bufnode for %ld", key);
+    if (node_h >= kBufNodeLevel + 1) {      
       NodeMeta* node_meta = new_node->Meta();
       node_meta->bufnode_ptr = (uint64_t) new BufNode();
+      DEBUG("Create bufnode 0x%lx for %ld", node_meta->bufnode_ptr, key);
+#ifdef DRAM_CACHE
+      // creaet dram cache for this node
+      Node* tmp = AllocateNodeDram(sizeof(size_t), node_h);      
+      memcpy(const_cast<char*>(tmp->Key()), &key, sizeof(size_t));
+      tmp->SetBufNode(new_node->BufNode());
+      tmp->SetPmemNode(new_node);
+      DEBUG("Create node dram cache (0x%lx) for %ld. bufnode: 0x%lx, pmemnode: 0x%lx, pmem bufnode: 0x%x", 
+        tmp, 
+        key,
+        tmp->BufNode(),
+        tmp->PmemNode(),
+        tmp->PmemNode()->BufNode()
+        );
+      new_node = tmp;
+#endif
     }
     addr += prefix + sizeof(Node) + sizeof(NodeMeta) + sizeof(size_t);
 
-    // link this node
+    bool is_new_node_dram = new_node->isDramNode();
+    // link this node with previous node
     if (i != 0) {
       int link_height = std::min(cur_height, node_h);
-      for (int l = 0; l < link_height; l++) {
+      for (int l = 0; l < link_height; l++) {                
+#ifdef DRAM_CACHE
+        bool is_next_l_dram = splice_partition.next_[l]->isDramNode();
+        if (is_next_l_dram && is_new_node_dram) {
+          // link dram part and pmem part
+          DEBUG("Connect dram - dram L%d. dram link: node 0x%lx -> node 0x%lx, pmem link: node 0x%lx -> node 0x%lx",
+            l,
+            splice_partition.next_[l],
+            new_node,
+            splice_partition.next_[l]->PmemNode(),
+            new_node->PmemNode()
+            );
+          splice_partition.next_[l]->PmemNode()->SetNextNoFlush(l, new_node->PmemNode()); // pmem -> pmem
+          splice_partition.next_[l]->SetNextNoFlush(l, new_node); // dram -> dram
+        } else if (is_next_l_dram) {
+          // only next l is dram
+          DEBUG("Connect dram - pmem L%d. dram link: node 0x%lx -> node 0x%lx, pmem link: node 0x%lx -> node 0x%lx",
+            l,
+            splice_partition.next_[l],
+            new_node,
+            splice_partition.next_[l]->PmemNode(),
+            new_node
+            );
+          splice_partition.next_[l]->PmemNode()->SetNextNoFlush(l, new_node); // pmem -> pmem
+          splice_partition.next_[l]->SetNextNoFlush(l, new_node); // dram -> pmem
+        } else if (is_new_node_dram) {
+          DEBUG("Connect pmem - dram L%d. pmem link: node 0x%lx -> node 0x%lx",
+            l,
+            splice_partition.next_[l],
+            new_node->PmemNode()
+            );
+          splice_partition.next_[l]->SetNextNoFlush(l, new_node->PmemNode()); // pmem -> pmem
+        } else {
+          DEBUG("Connect pmem - pmem L%d. pmem link: node 0x%lx -> node 0x%lx",
+            l,
+            splice_partition.next_[l],
+            new_node
+            );
+          splice_partition.next_[l]->SetNextNoFlush(l, new_node); // pmem -> pmem
+        }       
+#else
         DEBUG("link node(0x%lx) next[%ld] -> node (0x%lx). %ld -> %ld",           
           splice_partition.next_[l],
           l,
@@ -1636,7 +1890,8 @@ size_t InlineSkipList<Comparator>::Compact(Node* node, Splice& splice_partition,
           *(size_t*)splice_partition.next_[l]->Key(),
           key
           );
-        splice_partition.next_[l]->SetNextNoFlush(l, new_node);
+        splice_partition.next_[l]->SetNextNoFlush(l, new_node);        
+#endif
       }
     }
 
