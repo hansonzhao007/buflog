@@ -142,7 +142,7 @@ inline PosixLogger* NewLogger(const std::string& filename) {
     }
 }
 
-std::string NowTimeInString() {
+inline std::string NowTimeInString() {
   std::time_t result = std::time(nullptr);
   return std::to_string(result) + ".log";
 };

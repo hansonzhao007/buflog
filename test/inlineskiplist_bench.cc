@@ -945,9 +945,9 @@ private:
         fprintf(stdout, "------------------------------------------------\n");                   
         PrintEnvironment();
         #ifndef BUFLOG
-        fprintf(stdout, "HashBuflog:            %false\n");
+        fprintf(stdout, "HasBuflog:            false\n");
         #else
-        fprintf(stdout, "HashBuflog:            %true\n");
+        fprintf(stdout, "HasBuflog:            true\n");
         #endif
         fprintf(stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf(stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);                      
