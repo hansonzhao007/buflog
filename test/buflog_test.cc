@@ -1,5 +1,4 @@
 #include "src/buflog.h"
-#include "FAST_FAIR/btree.h"
 #include "gtest/gtest.h"
 
 using namespace buflog;
@@ -15,16 +14,11 @@ TEST(DataLog, DramIterator) {
     char* addr = (char*)malloc(1024*1024);
 
     log.Create(addr, 1024 * 1024);
-    for (int i = 0; i < 10; i++) {
-        std::string tmp = "This is data" + std::to_string(i); 
-        linkedredolog::DataLogNodeBuilder node(tmp.data(), tmp.size(), 0);
-        log.Append(node, false);
-    }
 
+    size_t next = 0;
     for (int i = 100; i < 110; i++) {
-        std::string tmp = "This is slice" + std::to_string(i); 
-        uint8_t checksum = Hasher::hash(tmp.data(), tmp.size()) & 0xFF;
-        log.Append(tmp, 0, checksum, false);
+        std::string tmp = "This is slice" + std::to_string(i);
+        next = log.Append(buflog::kDataLogNodeValid, tmp, next, false);
     }
 
     auto iter = log.Begin();
@@ -41,17 +35,25 @@ TEST(DataLog, DramIterator) {
         printf("entry %d: %s\n", i++, iterr->ToString().c_str());
         iterr--;
     }
+
+    auto iterl = log.lBegin();
+    while (iterl.Valid()) {
+        printf("entry %d: %s\n", i++, iterl->ToString().c_str());
+        iterl++;
+    }
+
+
 }
 
 TEST(BufVec, Operation) {
     BufVec node;
 
-    for (int i = 0; i < 8; ++i) {
-        EXPECT_TRUE(node.Insert(random()));
+    for (int i = 0; i < 7; ++i) {
+        EXPECT_TRUE(node.Insert(random() % 100));
     }
 
-    EXPECT_FALSE(node.Insert(0));
-
+    EXPECT_FALSE(node.Insert(8));
+    EXPECT_TRUE(node.CompactInsert(8));
     node.Sort();
 
     auto iter = node.Begin();
@@ -130,7 +132,6 @@ TEST(SortedBufNode, PutGet) {
     printf("\n");
 }
 
-
 TEST(SortedBufNode, MaskLastN) {
     SortedBufNode buf_node;
 
@@ -150,8 +151,6 @@ TEST(SortedBufNode, MaskLastN) {
     printf("bufnode after  mask: %s\n", buf_node.ToStringValid().c_str());
     printf("%s\n", buf_node.ToString().c_str());
 }
-
-
 
 TEST(WriteBuffer, Iterator) {
     WriteBuffer<8> buf_node;
@@ -174,18 +173,6 @@ TEST(WriteBuffer, Iterator) {
     }
 
 }
-
-
-TEST(Btree, Update) {
-    page new_page;
-    int num = 0;
-    new_page.insert_key(1, (char*)1, &num, false);
-    new_page.printAll();
-
-    new_page.update_key(1, (char*)2);
-    new_page.printAll();
-}
-
 
 int main(int argc, char *argv[])
 {

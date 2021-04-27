@@ -1275,6 +1275,7 @@ retry:
         DEBUG("next bufnode before 0x%lx, is dram node: %d", next_bufnode, next_bufnode ? next_bufnode->isDramNode() : 0);
         size_t first_key =  Compact(closest_bufnode, splice_partition, false);
         DEBUG("next bufnode after  0x%lx, is dram node: %d", next_bufnode, next_bufnode ? next_bufnode->isDramNode() : 0);
+
   //       ...  |__|
   //       ...  |__| ----------------------------- |__|
   //       ...  |__| ------------ |__| ----------- |__|       

@@ -14,12 +14,18 @@
 
 #include <atomic>
 
-#include <libpmem.h>
-
 #include "logger.h"
 
 #define BUFLOG_FLUSH(addr) asm volatile ("clwb (%0)" :: "r"(addr))
 #define BUFLOG_FLUSHFENCE asm volatile ("sfence" ::: "memory")
+
+
+inline void BUFLOG_CLFLUSH(char *data, int len) {
+  volatile char *ptr = (char *)((unsigned long)data & ~(64 - 1));
+  for (; ptr < data + len; ptr += 64) {
+    _mm_clwb((void*)ptr);
+  }
+}
 
 inline void BUFLOG_COMPILER_FENCE() {
     std::atomic_thread_fence(std::memory_order_release);
@@ -188,9 +194,6 @@ public:
  *        Meanwhile, we only have to recover the head node of each linked-list,
  *        so the recover speed should be fast.
 */
-namespace linkedredolog {
-
-const size_t kDataLogNodeSizeLimit = 65536;
 
 enum DataLogNodeMetaType: unsigned char {
     kDataLogNodeValid = 0x10,        // a valid data log node
@@ -199,84 +202,65 @@ enum DataLogNodeMetaType: unsigned char {
     kDataLogNodeFail
 };
 
-using DataLogNodePtr  = uint64_t;
-using log_data_size   = uint32_t;
+namespace linkedredolog {
+
 /** 
  *  Format:
- *  | size | .. data ... |  DataLogNodeMeta |
- *         |              
- *        Data()
- * 
- *  `size`: 4 bytes
- *      size of the `data`
+ *  | len | .. data ... |  DataLogNodeMeta |
+ *                      |
+ *            where the next_ point to
+ *  `len` : 1 byte. the size of data
  *  `data`: any bytes
  *      any length of record
- *  `DataLogNodeMeta`: 16 bytes 
- *      type_:
- *      none_:
- *      data_size_: equals to `size`
- *      next_;
+ *  `DataLogNodeMeta`: 8 bytes
+ *      type_: 1 byte
+ *      data_size_: 1 byte, the size of data
+ *      next_; 6 byte
 */
 class DataLogNodeMeta {
 public:
     inline DataLogNodeMeta* Next(void) {
-        return reinterpret_cast<DataLogNodeMeta*>(next_);
+        return reinterpret_cast<DataLogNodeMeta*>(_.next_);
     }
 
     inline util::Slice Data(void) {
-        return util::Slice((char*)(this) - data_size_, data_size_);
+        return util::Slice((char*)(this) - _.data_size_, _.data_size_);
     }
 
     inline bool Valid(void) {
-        return type_ < kDataLogNodeFail &&              // type is valid
-               type_ >= kDataLogNodeValid &&
-               data_size_ <= kDataLogNodeSizeLimit &&   // size is valid
-               (Hasher::hash(Data().data(), Data().size()) & 0xFF) == checksum_; // checksum is valid
+        return _.type_ < kDataLogNodeFail &&              // type is valid
+               _.type_ >= kDataLogNodeValid;
     }
 
     std::string ToString(void) {
         char buffer[1024];
-        sprintf(buffer, "type: %02d, checksum: 0x%x, data size: %u - %s. next off: %lu", 
-            type_,            
-            checksum_,
-            data_size_,
+        sprintf(buffer, "type: %02d, data size: %u - %s. next off: %lu", 
+            _.type_,                    
+            _.data_size_,
             Data().ToString().c_str(),
-            next_);
+            _.next_);
         return buffer;
     }
 
-    DataLogNodeMetaType type_;
-    uint8_t             checksum_;
-    log_data_size       data_size_;
-    DataLogNodePtr      next_;
+    struct {
+        uint64_t type_ : 8;
+        uint64_t data_size_: 8;
+        uint64_t next_ : 48;
+    }_;
 };
 
-class DataLogNodeBuilder {
-public:
-    explicit DataLogNodeBuilder(const char* data_addr, log_data_size size, DataLogNodePtr next) {
-        size_ = sizeof(log_data_size) + size + sizeof(DataLogNodeMeta);
-        buf_  = (char*)malloc(size_);
-        *(log_data_size*)(buf_) = size;
-        memcpy(buf_ + sizeof(log_data_size), data_addr, size);
-        DataLogNodeMeta* meta = reinterpret_cast<DataLogNodeMeta*>(buf_ + sizeof(log_data_size) + size);
-        meta->type_ = kDataLogNodeValid;
-        meta->data_size_ = size;
-        meta->next_ = next;
-        meta->checksum_ = Hasher::hash(data_addr, size) & 0xFF;
-    }
-
-    ~DataLogNodeBuilder(){
-        free(buf_);
-    }
-
-    char*   buf_;
-    size_t  size_;
-};
+static_assert(sizeof(DataLogNodeMeta) == 8, "DataLogNodeMeta is not 8 byte ");
 
 struct DataLogMeta {
     uint64_t size_;         // lenght of this log file
     uint64_t commit_tail_;  // current tail
     char    _none[240];
+
+    std::string ToString() {
+        char buf[128];
+        sprintf(buf, "log size: %ld, cur tail: %ld", size_, commit_tail_);
+        return buf;
+    }
 };
 
 static_assert(sizeof(DataLogMeta) == 256, "size of LogMeta is not 256 byte");
@@ -303,6 +287,11 @@ public:
         log_size_mask_  = size - 1;
         log_start_addr_ = addr;
         log_cur_tail_   = 256;
+
+        DataLogMeta* meta = reinterpret_cast<DataLogMeta*>(addr);
+        meta->size_ = size;
+        BUFLOG_FLUSH(addr);
+        BUFLOG_FLUSHFENCE;
         return true;
     }
 
@@ -312,11 +301,20 @@ public:
         log_size_mask_ = log_size_ - 1;
         log_start_addr_ = addr;
         log_cur_tail_ = meta->commit_tail_;
+        printf("Data log: %s\n", meta->ToString().c_str());
+
+        auto iter = Begin();
+
+        int i = 0;
+        while (iter.Valid()) {
+            printf("entry %d: %s\n", i++, iter->ToString().c_str());
+            iter++;
+        }
     }
     
     void CommitTail(bool is_pmem) {
         DataLogMeta* meta = reinterpret_cast<DataLogMeta*>(log_start_addr_);
-        meta->commit_tail_ = log_cur_tail_;
+        meta->commit_tail_ = log_cur_tail_.load();
 
         if (is_pmem) {
             BUFLOG_FLUSH(meta);
@@ -324,48 +322,90 @@ public:
         }
     }
 
-    inline uint64_t Append(DataLogNodeBuilder& entry, bool is_pmem) {
-        size_t off = log_cur_tail_.fetch_add(entry.size_, std::memory_order_relaxed);
-        if (is_pmem) {
-            pmem_memcpy_nodrain(log_start_addr_ + off, entry.buf_, entry.size_);
-        } else {
-            memcpy(log_start_addr_ + off, entry.buf_, entry.size_);
-        }
-        return off;
-    };
-
     inline uint64_t LogTail(void) {
         return log_cur_tail_;
     }
 
-    inline char* Append(util::Slice entry, DataLogNodePtr next, uint8_t checksum, bool is_pmem) {
-        int total_size = sizeof(log_data_size) + entry.size() + sizeof(DataLogNodeMeta);
+    inline size_t Append(DataLogNodeMetaType type, util::Slice entry, uint64_t next, bool is_pmem) {
+        int total_size = 1 + entry.size() + sizeof(DataLogNodeMeta);
         size_t off = log_cur_tail_.fetch_add(total_size, std::memory_order_relaxed);
         char* addr = log_start_addr_ + off;
-        // | size | .. data ... |  DataLogNodeMeta |
-        *(log_data_size*)(addr) = entry.size();
-        if (is_pmem) {
-            pmem_memcpy_nodrain(addr + sizeof(log_data_size), entry.data(), entry.size());
-        } else {
-            memcpy(addr + sizeof(log_data_size), entry.data(), entry.size());
-        }
-        
-        DataLogNodeMeta meta;
-        meta.type_ = kDataLogNodeValid;
-        meta.data_size_ = entry.size();
-        meta.next_ = next;
-        meta.checksum_ = checksum;
-        if (is_pmem) {
-            pmem_memcpy_nodrain(addr + sizeof(log_data_size) + entry.size(), &meta, sizeof(DataLogNodeMeta));
-        } else {
-            memcpy(addr + sizeof(log_data_size) + entry.size(), &meta, sizeof(DataLogNodeMeta));
-        }
 
+        int len = entry.size();
+
+        //  | len | .. data ... |  DataLogNodeMeta |
+        //  |  1B        len             8B
+        // addr
+        *(uint8_t*)(addr) = len;
+        
+        // copy the slice entry
+        memcpy(addr + 1, entry.data(), len);
+        
+        DataLogNodeMeta* meta = reinterpret_cast<DataLogNodeMeta*>(addr + 1 + len);
+        meta->_.type_ = type;
+        meta->_.data_size_ = len;
+        meta->_.next_ = next;
+       
         if (is_pmem) {
-            pmem_flush(addr + off, total_size);
+            BUFLOG_CLFLUSH(addr, total_size);
         }
         
-        return log_start_addr_ + off;
+        // return start offset of DataLogNodeMeta
+        return off + 1 + len;
+    }
+
+
+    inline size_t Append(DataLogNodeMetaType type, char* target, size_t len, uint64_t next, bool is_pmem) {
+        int total_size = 1 + len + sizeof(DataLogNodeMeta);
+        size_t off = log_cur_tail_.fetch_add(total_size, std::memory_order_relaxed);
+        char* addr = log_start_addr_ + off;
+
+        //  | len | .. data ... |  DataLogNodeMeta |
+        //  |  1B        len             8B
+        // addr
+        *(uint8_t*)(addr) = len;
+        
+        // copy the slice entry
+        memcpy(addr + 1, target, len);
+        
+        DataLogNodeMeta* meta = reinterpret_cast<DataLogNodeMeta*>(addr + 1 + len);
+        meta->_.type_ = type;
+        meta->_.data_size_ = len;
+        meta->_.next_ = next;
+       
+        if (is_pmem) {
+            BUFLOG_CLFLUSH(addr, total_size);
+        }
+        
+        // return start offset of DataLogNodeMeta
+        return off + 1 + len;
+    }
+
+    // append fixed 16 byte kv pair
+    inline size_t Append(DataLogNodeMetaType type, size_t key, size_t val, uint64_t next, bool is_pmem) {
+        int total_size = 1 + 16 + sizeof(DataLogNodeMeta);
+        size_t off = log_cur_tail_.fetch_add(total_size, std::memory_order_relaxed);
+        char* addr = log_start_addr_ + off;
+
+        //  | len | .. data ... |  DataLogNodeMeta |
+        //  |  1B        len             8B
+        // addr
+        *(uint8_t*)(addr) = 16;
+        
+        *(uint64_t*)(addr + 1) = key;
+        *(uint64_t*)(addr + 1 + 8) = val;
+        
+        DataLogNodeMeta* meta = reinterpret_cast<DataLogNodeMeta*>(addr + 1 + 16);
+        meta->_.type_ = type;
+        meta->_.data_size_ = 16;
+        meta->_.next_ = next;
+       
+        if (is_pmem) {
+            BUFLOG_CLFLUSH(addr, total_size);
+        }
+        
+        // return start offset of DataLogNodeMeta
+        return off + 1 + 16;
     }
 
 
@@ -389,8 +429,8 @@ public:
         }
 
         inline DataLogNodeMeta* operator->(void) const {
-            log_data_size data_size = *reinterpret_cast<log_data_size*>(log_addr_ + front_off_);
-            return reinterpret_cast<DataLogNodeMeta*>(log_addr_ + front_off_ + sizeof(log_data_size) + data_size);
+            uint8_t data_size = *reinterpret_cast<uint8_t*>(log_addr_ + front_off_);
+            return reinterpret_cast<DataLogNodeMeta*>(log_addr_ + front_off_ + 1 + data_size);
         }
         
         // Prefix ++ overload 
@@ -411,8 +451,8 @@ public:
     private:
         // size of the entire LogDataNode
         inline size_t size(void) {
-            log_data_size data_size = *reinterpret_cast<log_data_size*>(log_addr_ + front_off_);
-            return sizeof(log_data_size) + data_size + sizeof(DataLogNodeMeta);
+            uint8_t data_size = *reinterpret_cast<uint8_t*>(log_addr_ + front_off_);
+            return 1 + data_size + sizeof(DataLogNodeMeta);
         }
 
         size_t front_off_;
@@ -459,9 +499,56 @@ public:
         // size of the entire LogDataNode of data log node 
         inline size_t NodeSize(void) {
             DataLogNodeMeta* node_meta = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + end_off_ - sizeof(DataLogNodeMeta));
-            return sizeof(log_data_size) + node_meta->data_size_ + sizeof(DataLogNodeMeta);
+            return 1 + node_meta->_.data_size_ + sizeof(DataLogNodeMeta);
         }
         int64_t end_off_;
+        char*   log_addr_;
+    };
+
+    class LinkIterator {
+    public:
+        LinkIterator(uint64_t next, char* log_start_addr):
+            next_off_(next),
+            log_addr_(log_start_addr) {
+        }
+
+        // Check if the DataLogNode pointed by myself is valid or not
+        inline bool Valid(void) const {
+            return next_off_ > 256 && // should be larger than the DataLogMeta
+                   reinterpret_cast<DataLogNodeMeta*>(log_addr_ + next_off_)->_.type_ != kDataLogNodeLinkEnd;
+        }
+
+        inline DataLogNodeMeta operator*() const{ 
+            return *this->operator->();
+        }
+
+        inline DataLogNodeMeta* operator->(void) const {
+            DataLogNodeMeta* node_meta = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + next_off_);
+            return node_meta;
+        }
+
+        // Prefix -- overload 
+        inline LinkIterator& operator++() 
+        { 
+            next_off_ = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + next_off_)->_.next_;
+            return *this;
+        }
+
+        // Postfix -- overload 
+        inline LinkIterator operator++(int) 
+        { 
+            auto tmp = *this;
+            next_off_ = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + next_off_)->_.next_;
+            return tmp;
+        }
+        
+    private:
+        // size of the entire LogDataNode of data log node 
+        inline size_t NodeSize(void) {
+            DataLogNodeMeta* node_meta = reinterpret_cast<DataLogNodeMeta*>(log_addr_ + next_off_);
+            return 1 + node_meta->_.data_size_ + sizeof(DataLogNodeMeta);
+        }
+        int64_t next_off_;
         char*   log_addr_;
     };
 
@@ -471,6 +558,10 @@ public:
 
     ReverseIterator rBegin(void) {
         return ReverseIterator(log_cur_tail_, log_start_addr_);
+    }
+
+    LinkIterator lBegin() {
+        return LinkIterator(log_cur_tail_ - sizeof(DataLogNodeMeta), log_start_addr_);
     }
 
 private:
@@ -859,9 +950,10 @@ public:
     int64_t         highkey_;    // 40 bytes
     int64_t         parentkey_;  // 48 bytes
     KV              kvs_[13];    // 256 bytes
+    uint64_t        next_;
 };
 
-static_assert(sizeof(SortedBufNode) == 256, "SortBufNode is not 256 byte");
+static_assert(sizeof(SortedBufNode) == 264, "SortBufNode is not 264 byte");
 
 struct BufVec {
     static constexpr int kValNum = 8;

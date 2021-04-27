@@ -1,5 +1,3 @@
-#pragma once
-
 #ifndef __LOGGER_H
 #define __LOGGER_H
 #include <sys/time.h>
@@ -10,6 +8,8 @@
 #include <ctime>
 #include <sstream>
 #include <thread>
+#include <chrono>
+#include <type_traits>
 
 class PosixLogger{
  public:
@@ -142,7 +142,12 @@ inline PosixLogger* NewLogger(const std::string& filename) {
     }
 }
 
-static PosixLogger* logger_ = NewLogger("log.log");
+std::string NowTimeInString() {
+  std::time_t result = std::time(nullptr);
+  return std::to_string(result) + ".log";
+};
+
+static PosixLogger* logger_ = NewLogger(NowTimeInString());
 
 #define __FILENAME__ ((strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__))
 
@@ -159,7 +164,7 @@ do {\
 do {\
   char buffer[1024] = "[DEBUG] ";\
   sprintf(buffer + 8, "[%s %s:%d] ", __FILENAME__, __FUNCTION__, __LINE__);\
-  sprintf(buffer + strlen(buffer), M, ##__VA_ARGS__);\
+  sprintf(buffer + strlen(buffer), M, ##__VA_ARGS__);\  
   Log(logger_, "%s", buffer);\
 } while(0);
 #else

@@ -355,7 +355,7 @@ public:
     }
 
     ~Benchmark() {
-        
+        if (tree_) delete tree_;
     }
 
     void Run() {
@@ -386,10 +386,14 @@ public:
             if (name == "load") {
                 fresh_db = true;
                 method = &Benchmark::DoWrite;                
-            } if (name == "loadlat") {
+            } else if (name == "loadlat") {
                 fresh_db = true;
                 print_hist = true;
                 method = &Benchmark::DoWriteLat;                
+            } else if (name == "recover") {
+                fresh_db = false;                
+                tree_ = RecoverBtree();
+                method = nullptr;
             } else if (name == "overwrite") {
                 fresh_db = false;
                 key_trace_->Randomize();
@@ -442,7 +446,7 @@ public:
                 DistroyBtree();
                 tree_ = CreateBtree();
             }
-
+            
             IPMWatcher watcher(name);
             if (method != nullptr) RunBenchmark(thread, name, method, print_hist);
         }

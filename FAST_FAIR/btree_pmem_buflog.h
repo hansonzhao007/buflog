@@ -40,6 +40,7 @@ const size_t FASTFAIR_PMEM_DATALOG_SIZE = ((16LU << 30));
 // #define BUFLOG_DEBUG
 
 #ifdef BUFLOG_DEBUG
+#include "src/logger.h"
 #define BUFLOG_INFO(M, ...)\
 do {\
     INFO(M, ##__VA_ARGS__);\
@@ -60,10 +61,11 @@ do {\
 
 #define CONFIG_BUFNODE
 #define CONFIG_OUT_OF_PLACE_MERGE
-#define CONFIG_DRAM_INNER
+// #define CONFIG_DRAM_INNER
+
+#define CONFIG_APPEND_TO_LOG_TEST
 
 #define PAGESIZE 512
-#define PAGESIZE_BUFNODE 256
 
 #define CACHE_LINE_SIZE 64
 
@@ -105,10 +107,12 @@ public:
   inline static turbo::unordered_map<size_t, char*> bufnode_table_;    // dram table to record bufnode
 
   ~btree() {
+    btree::datalog_.CommitTail(true);
     RP_close();
   }
   friend btree* CreateBtree(void);
   friend btree* RecoverBtree(void);
+
   void setNewRoot(page *);
   void getNumberOfNodes();
   void btree_insert(entry_key_t, char *);
@@ -1422,7 +1426,7 @@ void btree::btree_insert(entry_key_t key, char *right) { // need to be string
 
   #ifdef CONFIG_BUFNODE
   // insert to bufnode without touching leafnode
-  auto iter = btree::bufnode_table_.Find(size_t(p)); 
+  auto iter = btree::bufnode_table_.Find(size_t(p));
   int64_t highkey; 
   if (iter != nullptr) {
     bufnode = reinterpret_cast<buflog::SortedBufNode*>(iter->second());
@@ -1438,6 +1442,13 @@ void btree::btree_insert(entry_key_t key, char *right) { // need to be string
       bool res = bufnode->Put(key, right);
       if (res) {
         // successfully insert to bufnode
+
+        #ifdef CONFIG_APPEND_TO_LOG_TEST
+        // !buflog: append to log
+        INFO("append to log tail: %ld", bufnode->next_);
+        bufnode->next_ = datalog_.Append(buflog::kDataLogNodeValid, key, (size_t)right, bufnode->next_, true);
+        #endif
+
         bufnode->Unlock();
         return;
       }
