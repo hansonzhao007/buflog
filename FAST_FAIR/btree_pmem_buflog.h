@@ -63,7 +63,7 @@ do {\
 #define CONFIG_OUT_OF_PLACE_MERGE
 // #define CONFIG_DRAM_INNER
 
-#define CONFIG_APPEND_TO_LOG_TEST
+// #define CONFIG_APPEND_TO_LOG_TEST
 
 #define PAGESIZE 512
 
@@ -92,16 +92,12 @@ class page;
 class btree {
 private:
   int height;
-  #ifndef CONFIG_DRAM_INNER
-  pptr<page> root;
-  pptr<char> datalog_addr_;
-  #else
   page* root;
-  char* datalog_addr_;
-  #endif
-  
-  // btree();
 
+  pptr<page> root_pmem_;
+  page*      root_dram_;
+  pptr<char> datalog_addr_;
+  
 public:
   inline static buflog::linkedredolog::DataLog datalog_;
   inline static turbo::unordered_map<size_t, char*> bufnode_table_;    // dram table to record bufnode
@@ -130,7 +126,7 @@ public:
   friend class page;
 };
 
-static_assert(sizeof(btree) == 24, "btree size is not 24 byte");
+// static_assert(sizeof(btree) == 24, "btree size is not 24 byte");
 
 class header {
 public:
@@ -1283,13 +1279,9 @@ btree* CreateBtree(void) {
   page* buf = reinterpret_cast<page*>(RP_malloc(sizeof(page)));  
   page* root = new (buf) page(0);
   btree_root->root = root;
+  btree_root->root_pmem_ = root;
   btree_root->datalog_addr_ = reinterpret_cast<char*>(RP_malloc(FASTFAIR_PMEM_DATALOG_SIZE));
-  btree::datalog_.Create(btree_root->datalog_addr_, FASTFAIR_PMEM_DATALOG_SIZE);
-  // #ifdef CONFIG_BUFNODE
-  //  // !buflog: create a bufnode for leaf page
-  // buflog::SortedBufNode* new_bufnode = new buflog::SortedBufNode();                              
-  // btree::bufnode_table_.Put((size_t)buf, (char*)new_bufnode);
-  // #endif
+  btree::datalog_.Create(btree_root->datalog_addr_, FASTFAIR_PMEM_DATALOG_SIZE); 
   return btree_root;
 }
 
@@ -1312,13 +1304,15 @@ btree* RecoverBtree(void) {
   }
 
   btree* btree_root = RP_get_root<btree>(0);
+  btree_root->root = btree_root->root_pmem_;
   btree::datalog_.Open(btree_root->datalog_addr_);
   return btree_root;
 }
 
 void btree::setNewRoot(page *new_root) {
   this->root = new_root;
-  clflush((char *)&(this->root), sizeof(char *));
+  this->root_pmem_ = new_root;
+  clflush((char *)&(this->root_pmem_), sizeof(char *));
   ++height;
 }
 
