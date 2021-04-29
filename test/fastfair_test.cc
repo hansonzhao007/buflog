@@ -98,11 +98,11 @@ int main(int argc, char *argv[])
       page* parent = bt->btree_search_internal(key, pi);
       page* leafnode_ptr = nullptr;
       if (pi == -1) {
-        leafnode_ptr = parent->hdr.leftmost_ptr;
+        leafnode_ptr = parent->hdr.GetLeftMostPtr();
       } else if (pi == -2) {
         // 
       } else {
-        char* tmp = parent->records[pi].ptr;
+        char* tmp = parent->records[pi].GetPtr(parent->hdr.is_dram);
         leafnode_ptr = (page*)tmp;
       }
       printf("The address of the leafnode is 0x%x if we search key %d. It is the %d-th in the parent node 0x%x,\n", leafnode_ptr, key, pi, parent);
