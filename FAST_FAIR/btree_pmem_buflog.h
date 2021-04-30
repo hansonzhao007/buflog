@@ -76,6 +76,8 @@ pthread_mutex_t print_mtx;
 
 using namespace std;
 
+#define FASTFAIR_CPU_RELAX()   asm volatile("pause\n": : :"memory")
+
 inline void mfence() { asm volatile("sfence" ::: "memory"); }
 
 inline void clflush(char *data, int len) {
@@ -552,6 +554,7 @@ public:
 
       return nullptr;
     }
+    
     // If this node has a sibling node,
     if (hdr.GetSiblingPtr() != nullptr) {
       // Compare this key with the first key of the sibling
@@ -567,7 +570,9 @@ public:
     update_key(key, new_ptr);
     
 #ifdef CONFIG_DRAM_INNER
+    while(!hdr.page_pmem->hdr.mtx.try_lock()) FASTFAIR_CPU_RELAX();
     hdr.page_pmem->update_key(key, new_ptr);
+    hdr.page_pmem->hdr.mtx.unlock();        
 #endif
 
     if (with_lock) {
@@ -598,7 +603,7 @@ public:
           hdr.mtx.unlock(); // Unlock the write lock
         }
         page* sibl = hdr.GetSiblingPtr();
-        BUFLOG_INFO("Leafnode 0x%lx store in siblinng 0x%lx. key %ld, sbling 0: %ld, hdr.immutable: %d", this, sibl, key, hdr.GetSiblingPtr()->records[0].key, hdr.immutable);
+        BUFLOG_INFO("Leafnode 0x%lx store in siblinng 0x%lx. key %ld, sbling: %ld, ptr 0x%lx, hdr.immutable: %d", this, sibl, key, hdr.GetSiblingPtr()->records[0].key, hdr.GetSiblingPtr()->records[0].GetPtr(hdr.is_dram), hdr.immutable);
         return hdr.GetSiblingPtr()->store(nullptr, pi, bt, nullptr, key, right, true, with_lock,
                                       invalid_sibling, nullptr);
       }
@@ -663,7 +668,7 @@ public:
           BUFLOG_INFO("Insert key %ld to L%d inner node 0x%lx (dram: %d), right 0x%lx (dram: %d).",
             key, hdr.level, this, hdr.is_dram, rp, rp->hdr.is_dram);
           int num_entries_back = num_entries;  
-          insert_key(key, right, &num_entries, flush);
+          insert_key(key, right, &num_entries, false);
           if (rp->hdr.is_dram) {
             hdr.page_pmem->insert_key(key, (char*)rp->hdr.page_pmem, &num_entries_back);
           } else {
@@ -703,6 +708,8 @@ public:
         // !buflog: migrate both bufnode and leafnode entries to sibling
         if (bufnode_entries == 0) { // no bufnode entries
           for (int i = m; i < num_entries; ++i) {
+            BUFLOG_INFO("Leafnode 0x%lx accepts records[%d]: key %ld, ptr 0x%lx", 
+            sibling, i, records[i].key, records[i].GetPtr(hdr.is_dram));
             sibling->insert_key(records[i].key, records[i].GetPtr(hdr.is_dram), &sibling_cnt,
                                 false);
           }
@@ -752,7 +759,8 @@ public:
         BUFLOG_INFO("End Split. Create bufnode 0x%lx. mapping to leafnode 0x%lx. %s", new_bufnode, sibling, new_bufnode->ToStringValid().c_str());
       } 
       else { // internal node
-        BUFLOG_INFO("Begin Split at inner node 0x%lx (L%d, dram: %d). Split key: %ld", this, hdr.level, hdr.is_dram, split_key);
+        BUFLOG_INFO("Begin Split at inner node 0x%lx (L%d, dram: %d). Split key: %ld, right: 0x%lx", 
+        this, hdr.level, hdr.is_dram, split_key, records[m].ptr_dram);
 #ifdef CONFIG_DRAM_INNER        
         sibling_dram = new page(hdr.level, true);
         sibling_dram->hdr.page_pmem = sibling;
@@ -762,10 +770,15 @@ public:
           sibling_dram->insert_key(records[i].key, records[i].GetPtr(hdr.is_dram), &sibling_cnt, false);
           sibling->insert_key(hdr.page_pmem->records[i].key, hdr.page_pmem->records[i].GetPtr(false), &sibling_cnt_pmem);
         }
-        char* rptr = records[m].GetPtr(hdr.is_dram);
+        char* rptr = records[m].GetPtr(true);
+        assert(rptr);
         sibling_dram->hdr.SetLeftMostPtr((page *)rptr);
+        BUFLOG_INFO("Set sibling dram 0x%lx (dram: %d) lefmost. hdr.leftmost_dram: 0x%lx, rptr: 0x%lx",
+          sibling_dram, sibling_dram->hdr.is_dram, sibling_dram->hdr.leftmost_ptr_dram, rptr);
         char* rptr_pmem = hdr.page_pmem->records[m].GetPtr(false);
         sibling->hdr.SetLeftMostPtr((page*)rptr_pmem);
+        BUFLOG_INFO("Set sibling pmem 0x%lx (dram: %d) lefmost. hdr.leftmost_pmem: 0x%lx, rptr_pmem: 0x%lx",
+          sibling, sibling->hdr.is_dram, sibling->hdr.GetLeftMostPtr(), rptr_pmem);
 #else
         for (int i = m + 1; i < num_entries; ++i) {
           sibling->insert_key(records[i].key, records[i].GetPtr(hdr.is_dram), &sibling_cnt,
@@ -776,11 +789,10 @@ public:
 #endif
       }
 
-      // connect sibling to new splitted node
+      // Step 3. connect sibling to new splitted node
 #ifdef CONFIG_DRAM_INNER
       if (hdr.GetLeftMostPtr() != nullptr) {
-        // this is inner node
-        BUFLOG_INFO("Link inner node sibling.")
+        // this is inner node        
         sibling_dram->hdr.SetSiblingPtr(hdr.GetSiblingPtr()); // link dram sibling
         sibling->hdr.SetSiblingPtr(hdr.page_pmem->hdr.GetSiblingPtr()); // link pmem sibling
         clflush((char *)sibling, sizeof(page));
@@ -788,13 +800,22 @@ public:
         hdr.SetSiblingPtr(sibling_dram); // link dram
         hdr.page_pmem->hdr.SetSiblingPtr(sibling); // link pmem
         clflush((char *)&hdr.page_pmem->hdr, sizeof(hdr));
+
+        BUFLOG_INFO("Set sibling dram 0x%lx (dram: %d) sibling. hdr.sibling: 0x%lx, sibling: 0x%lx",
+          sibling_dram, sibling_dram->hdr.is_dram, sibling_dram->hdr.sibling_ptr_dram, hdr.sibling_ptr_dram);
+
+        BUFLOG_INFO("Set sibling pmem 0x%lx (dram: %d) sibling. hdr.sibling: 0x%lx, sibling: 0x%lx",
+          sibling, sibling->hdr.is_dram, sibling->hdr.GetSiblingPtr(), hdr.page_pmem->hdr.GetSiblingPtr());
+        
+        std::atomic_thread_fence(std::memory_order_release);
       } else {
-        // leafnode
-        BUFLOG_INFO("Link leafnode sibling.")
+        // leafnode        
         sibling->hdr.SetSiblingPtr(hdr.GetSiblingPtr());
         clflush((char *)sibling, sizeof(page));
         hdr.SetSiblingPtr(sibling);
         clflush((char *)&hdr, sizeof(hdr));
+        BUFLOG_INFO("Set leafnode sibling pmem 0x%lx (dram: %d) sibling. hdr.sibling: 0x%lx",
+          sibling, sibling->hdr.is_dram, sibling->hdr.GetSiblingPtr());
       }
 #else
       sibling->hdr.SetSiblingPtr(hdr.GetSiblingPtr());
@@ -822,9 +843,10 @@ public:
       hdr.last_index = m - 1;
       hdr.page_pmem->hdr.last_index = m - 1;
       clflush((char *)&hdr.page_pmem->hdr.last_index, sizeof(int16_t));
-    } else {
+    } 
+    else {
       // lefnode
-      BUFLOG_INFO("Set leafnode m nullptr.");
+      BUFLOG_INFO("Set leafnode 0x%lx key %ld to nullptr.", this, records[m].key);
       if (IS_FORWARD(hdr.switch_counter))
         hdr.switch_counter += 2;
       else
@@ -905,8 +927,8 @@ public:
 #ifdef CONFIG_DRAM_INNER
         page* buf = reinterpret_cast<page*>(RP_malloc(sizeof(page)));
         page* root_pmem_old = hdr.is_dram ? hdr.page_pmem : this;        
-        page* root_pmem = new (buf) page(root_pmem_old, split_key, sibling, hdr.level + 1, false);
-        page* root_dram = new page((page*)this, split_key, sibling_dram, hdr.level + 1, true);
+        page* root_pmem = new (buf) page(root_pmem_old, split_key, sibling, hdr.level + 1, false);        
+        page* root_dram = new page((page*)this, split_key, sibling_dram ? sibling_dram : sibling, hdr.level + 1, true);
         root_dram->hdr.page_pmem = root_pmem;
         bt->setNewRoot(root_dram); // passing new dram root page 
 #else
@@ -1094,7 +1116,7 @@ public:
         return t;
       }
 
-      BUFLOG_INFO("Cannot find key smaller than %ld in leafnode 0x%lx", key, this);
+      DEBUG("Cannot find key smaller than %ld in leafnode 0x%lx. pi %d", key, this, pi);
       return nullptr;
     } 
     else { // internal node
@@ -1166,7 +1188,7 @@ public:
       }
     }
 
-    BUFLOG_INFO("Cannot find key smaller than %ld in inner node 0x%lx", key, this);
+    DEBUG("Cannot find key smaller than %ld in inner node 0x%lx. pi: %d", key, this, pi);
     return nullptr;
   }
 
@@ -1392,22 +1414,28 @@ void btree::btree_insert(entry_key_t key, char *right) { // need to be string
   buflog::SortedBufNode* bufnode = nullptr;
   
   // find the leaf node
-  while (p->hdr.level > 1) {
+  while (p->hdr.level > 1) {    
     parent = p;
     p = (page *)p->linear_search(key, pi);
+    assert(p);
   }
   if (p->hdr.level == 1) {
+    // BUFLOG_INFO("Insert key %ld search level %d inner node 0x%lx (dram: %d)", key, p->hdr.level, p, p->hdr.is_dram);
     parent = p;
     p = (page *)p->linear_search(key, pi);
+    assert(p);
     while (pi == -2) {
+      BUFLOG_INFO("Insert key %ld search sibling. level %d inner node 0x%lx (dram: %d)", key, p->hdr.level, p, p->hdr.is_dram);
       parent == nullptr;
       p = (page *)p->linear_search(key, pi);
+      assert(p);
     }
   }
 
   if (p == nullptr) {
     BUFLOG_INFO("btree insert error");
   }
+
   #ifdef CONFIG_BUFNODE
   // insert to bufnode without touching leafnode
   auto iter = btree::bufnode_table_.Find(size_t(p));
@@ -1429,7 +1457,7 @@ void btree::btree_insert(entry_key_t key, char *right) { // need to be string
 
         #ifdef CONFIG_APPEND_TO_LOG_TEST
         // !buflog: append to log
-        INFO("append to log tail: %ld", bufnode->next_);
+        BUFLOG_INFO("append to log tail: %ld", bufnode->next_);
         bufnode->next_ = datalog_.Append(buflog::kDataLogNodeValid, key, (size_t)right, bufnode->next_, true);
         #endif
 
@@ -1507,6 +1535,7 @@ void btree::btree_insert_internal(char *left, entry_key_t key, char *right,
   if (level > root->hdr.level)
     return;
 
+  
   page *p = this->root;
 
   page* parent = nullptr;
@@ -1516,6 +1545,7 @@ void btree::btree_insert_internal(char *left, entry_key_t key, char *right,
     p = (page *)p->linear_search(key, pi);
   }
 
+  BUFLOG_INFO("Inner node 0x%lx (L%d) insert key: %d, right: 0x%lx", p, p->hdr.level, key, right);
   if (!p->store(parent, pi, this, nullptr, key, right, true, true)) {
     btree_insert_internal(left, key, right, level);
   }
