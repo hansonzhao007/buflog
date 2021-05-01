@@ -303,13 +303,13 @@ public:
         log_cur_tail_ = meta->commit_tail_;
         printf("Data log: %s\n", meta->ToString().c_str());
 
-        auto iter = Begin();
+        // auto iter = Begin();
 
-        int i = 0;
-        while (iter.Valid()) {
-            printf("entry %d: %s\n", i++, iter->ToString().c_str());
-            iter++;
-        }
+        // int i = 0;
+        // while (iter.Valid()) {
+        //     printf("entry %d: %s\n", i++, iter->ToString().c_str());
+        //     iter++;
+        // }
     }
     
     void CommitTail(bool is_pmem) {

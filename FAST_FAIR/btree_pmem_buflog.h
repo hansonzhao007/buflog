@@ -184,8 +184,8 @@ public:
     uint32_t is_deleted:2;
   };                      // 4 bytes
   
-  HeadSpinLock mtx;
-  uint8_t switch_counter; // 1 bytes
+  HeadSpinLock mtx;       // 1 byte
+  uint8_t switch_counter; // 1 byte
   int16_t last_index;     // 2 bytes
 
   page* page_pmem;        // for dram cache, this points to pmem page
@@ -522,16 +522,18 @@ public:
       return nullptr;
     }
 
+    page* sibl = hdr.GetSiblingPtr();
     // If this node has a sibling node,
-    if (hdr.GetSiblingPtr() != nullptr) {
+    if (sibl != nullptr && sibl != (page*)new_ptr) {
       // Compare this key with the first key of the sibling
-      if (key > hdr.GetSiblingPtr()->records[0].key) {
+      if (key > sibl->records[0].key) {
         if (with_lock) {
           hdr.mtx.unlock(); // Unlock the write lock
         }
-        return hdr.GetSiblingPtr()->update_sibling(key, new_ptr, with_lock);
+        return sibl->update_sibling(key, new_ptr, with_lock);
       }
     }
+    assert(this != (page*)new_ptr);
     BUFLOG_INFO("link leafnode 0x%lx to leafnode 0x%lx", this, new_ptr);
     hdr.SetSiblingPtr((page*) new_ptr);
     clflush((char*)&hdr, sizeof(hdr));
@@ -602,9 +604,10 @@ public:
         if (with_lock) {
           hdr.mtx.unlock(); // Unlock the write lock
         }
-        page* sibl = hdr.GetSiblingPtr();
+        page* sibl = hdr.GetSiblingPtr();  
+        assert(sibl != this);      
         BUFLOG_INFO("Leafnode 0x%lx store in siblinng 0x%lx. key %ld, sbling: %ld, ptr 0x%lx, hdr.immutable: %d", this, sibl, key, hdr.GetSiblingPtr()->records[0].key, hdr.GetSiblingPtr()->records[0].GetPtr(hdr.is_dram), hdr.immutable);
-        return hdr.GetSiblingPtr()->store(nullptr, pi, bt, nullptr, key, right, true, with_lock,
+        return sibl->store(nullptr, pi, bt, nullptr, key, right, true, with_lock,
                                       invalid_sibling, nullptr);
       }
     }
@@ -805,9 +808,7 @@ public:
           sibling_dram, sibling_dram->hdr.is_dram, sibling_dram->hdr.sibling_ptr_dram, hdr.sibling_ptr_dram);
 
         BUFLOG_INFO("Set sibling pmem 0x%lx (dram: %d) sibling. hdr.sibling: 0x%lx, sibling: 0x%lx",
-          sibling, sibling->hdr.is_dram, sibling->hdr.GetSiblingPtr(), hdr.page_pmem->hdr.GetSiblingPtr());
-        
-        std::atomic_thread_fence(std::memory_order_release);
+          sibling, sibling->hdr.is_dram, sibling->hdr.GetSiblingPtr(), hdr.page_pmem->hdr.GetSiblingPtr());              
       } else {
         // leafnode        
         sibling->hdr.SetSiblingPtr(hdr.GetSiblingPtr());
