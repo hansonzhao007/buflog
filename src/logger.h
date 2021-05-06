@@ -147,7 +147,7 @@ inline std::string NowTimeInString() {
   return std::to_string(result) + ".log";
 };
 
-static PosixLogger* logger_ = NewLogger(NowTimeInString());
+static PosixLogger* logger_ = NewLogger("log.log");
 
 #define __FILENAME__ ((strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__))
 
