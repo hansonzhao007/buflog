@@ -8,13 +8,18 @@ set(CMAKE_CXX_COMPILER "clang++")
 # set the project name
 project (index VERSION 0.0.1 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
 # default using release mode
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release) # RelWithDebInfo
-endif()
+if (NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE release)
+    message(STATUS "build type set to release") # RelWithDebInfo
+endif ()
+string(TOLOWER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
+message(STATUS "build type: ${CMAKE_BUILD_TYPE}")
+
 
 # add liballoc.a library: https://github.com/urcs-sync/ralloc
 execute_process(  COMMAND make libralloc.a -j8
@@ -38,22 +43,17 @@ endif()
 # # add gtest library
 list(APPEND THIRDPARTY_LIBS gtest gflags)
 
-if(CMAKE_COMPILER_IS_GNUCXX)
-    execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpversion
-                    OUTPUT_VARIABLE GCC_VERSION)
-    if(GCC_VERSION VERSION_GREATER 7.5 OR GCC_VERSION VERSION_EQUAL 7.5)
-        set(CMAKE_CXX_FLAGS "-Wall -Wextra")
-    else(GCC_VERSION VERSION_GREATER 7.5 OR GCC_VERSION VERSION_EQUAL 7.5)
-        set(CMAKE_CXX_FLAGS "-Wall -Wextra")
-    endif(GCC_VERSION VERSION_GREATER 7.5 OR GCC_VERSION VERSION_EQUAL 7.5)
-endif(CMAKE_COMPILER_IS_GNUCXX)
-if(CMAKE_CXX_COMPILER MATCHES "clang")
-    set(CMAKE_CXX_FLAGS "-Wall -Wextra")
-endif(CMAKE_CXX_COMPILER MATCHES "clang")
+include(CheckCXXCompilerFlag)
+CHECK_CXX_COMPILER_FLAG("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
+if(COMPILER_SUPPORTS_MARCH_NATIVE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -Wall -Wextra")
+endif()
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-format")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
-
+# tbb
+find_library(TbbLib tbb)
+list(APPEND THIRDPARTY_LIBS  ${TbbLib})
 
 # add pthread support
 find_package(Threads REQUIRED)
@@ -108,19 +108,6 @@ function(db_exe src_file)
   )
 endfunction(db_exe)
 
-# print all include directories and lib directories
-get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
-foreach(dir ${dirs})
-  message(STATUS "include dir='${dir}'")
-endforeach()
-get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY LINK_DIRECTORIES)
-foreach(dir ${dirs})
-  message(STATUS "lib dir='${dir}'")
-endforeach()
-
-foreach(tlib ${THIRDPARTY_LIBS})
-  message(STATUS "lib name='${tlib}'")
-endforeach()
 
 # The add_subdirectory will add CMakeLists.txt under src and tests into your project.
 add_subdirectory(CCEH/src)

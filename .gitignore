@@ -1,3 +1,5 @@
-debug
-release
+**/debug
+**/release
 .vscode
+**/*.o
+**/*.txt

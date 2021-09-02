@@ -1,12 +1,12 @@
 .PHONY: all clean
 
-CXX := g++ -O3 -std=c++17
+CXX := g++-10 -O3 -std=c++17
 CFLAGS := -I./ -lrt
 
 all: test ycsb
 
 ycsb: src/ycsb_bench.cpp CCEH
-	$(CXX) $(CFLAGS) -o ycsb_bench src/ycsb_bench.cpp src/CCEH.o -lpmemobj -lpmem -lpthread -lgflags -DMULTITHREAD
+	$(CXX) $(CFLAGS) -o ycsb_bench src/ycsb_bench.cpp src/CCEH.o -lpmemobj -ltbb -lpmem -lpthread -lgflags -DMULTITHREAD
 
 test: src/test.cpp CCEH
 	$(CXX) $(CFLAGS) -o bin/single_threaded_cceh src/test.cpp src/CCEH.o -lpmemobj -lpmem
