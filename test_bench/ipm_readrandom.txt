@@ -1,8 +1,0 @@
-# Collector: IPMWatch v2.7.2
-# Output Format: v1.0
-# Collected on Mon Apr 26 14:55:46 2021
-# Default Format
-# Avg column: read_hit_ratio (derived), write_hit_ratio (derived), wdb_merge_percent (derived)
-DIMM;read_64B_ops_received;write_64B_ops_received;ddrt_read_ops;ddrt_write_ops;
-DIMM0;21664929593716;10170705288356;6634634974990;8351047652412;
-DIMM1;16805086524204;7524801545756;5080217330425;6050768951398;

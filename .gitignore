@@ -3,3 +3,7 @@
 .vscode
 **/*.o
 **/*.txt
+**/*.log
+**/bin/*
+**/ycsb_bench
+**/ralloc
