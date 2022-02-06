@@ -17,14 +17,15 @@
 #include <thread>  // std::thread
 #include <vector>
 
-#ifdef PMEM_BUFLOG
+#ifdef BUFLOG
 #include "Skiplist/inlineskiplist_buflog.h"
-#elif defined(PMEM)
+#else
 #include "Skiplist/inlineskiplist.h"
 #endif
 
 #include <gflags/gflags.h>
 
+#include "../src/logger.h"
 #include "histogram.h"
 #include "test_util.h"
 
@@ -172,7 +173,7 @@ public:
         double now = NowNanos ();
         last_op_finish_ = now;
         done_ += batch;
-        if (done_ >= next_report_) {
+        if (unlikely (done_ >= next_report_)) {
             if (next_report_ < 1000)
                 next_report_ += 100;
             else if (next_report_ < 5000)
@@ -622,12 +623,12 @@ public:
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
                 size_t* key = key_iterator.NextRef ();
-#ifdef BUFLOG
-                skiplist_->InsertConcurrently ((char*)key);
-#else
+#ifndef BUFLOG
                 char* buf = skiplist_->AllocateKey (sizeof (Key));
                 memcpy (buf, key, sizeof (Key));
                 skiplist_->InsertConcurrently (buf);
+#else
+                skiplist_->InsertConcurrently ((char*)key);
 #endif
             }
             thread->stats.FinishedBatchOp (j);
@@ -915,13 +916,10 @@ private:
     void PrintHeader () {
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
-#ifdef SKIPLIST_BUFLOG_H_
-        fprintf (stdout, "Name:                  skiplist_buflog\n");
-#elif defined(SKIPLIST_PMEM_H_)
-        fprintf (stdout, "Name:                  skiplist_pmem\n");
+#ifndef BUFLOG
+        fprintf (stdout, "HasBuflog:            false\n");
 #else
-        fprintf (stdout, "Name:                  skiplist error\n");
-        exit (1);
+        fprintf (stdout, "HasBuflog:            true\n");
 #endif
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);

@@ -49,6 +49,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <random>
 #include <type_traits>
 
@@ -57,15 +58,12 @@
 #include "ralloc.hpp"
 const size_t SKIPLIST_PMEM_SIZE = ((100LU << 30));
 
-// buflog
-#include "src/buflog.h"
-
 #if defined(__GNUC__) && __GNUC__ >= 4
-#define LIKELY(x) (__builtin_expect ((x), 1))
-#define UNLIKELY(x) (__builtin_expect ((x), 0))
+#define likeyly(x) (__builtin_expect ((x), 1))
+#define unlikely(x) (__builtin_expect ((x), 0))
 #else
-#define LIKELY(x) (x)
-#define UNLIKELY(x) (x)
+#define likeyly(x) (x)
+#define unlikely(x) (x)
 #endif
 
 #define PREFETCH(addr, rw, locality) __builtin_prefetch (addr, rw, locality)

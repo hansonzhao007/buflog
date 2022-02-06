@@ -59,8 +59,8 @@ const size_t FASTFAIR_PMEM_DATALOG_SIZE = ((16LU << 30));
     } while (0);
 #endif
 
-// #define CONFIG_BUFNODE
-// #define CONFIG_DRAM_INNER
+#define CONFIG_BUFNODE
+#define CONFIG_DRAM_INNER
 // #define CONFIG_OUT_OF_PLACE_MERGE
 
 // #define CONFIG_APPEND_TO_LOG_TEST
