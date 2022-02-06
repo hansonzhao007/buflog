@@ -40,8 +40,8 @@
 // ... prev vs. next pointer ordering ...
 //
 
-#ifndef SKIPLIST_H_
-#define SKIPLIST_H_
+#ifndef SKIPLIST_PMEM_H_
+#define SKIPLIST_PMEM_H_
 
 #include <assert.h>
 #include <stdint.h>

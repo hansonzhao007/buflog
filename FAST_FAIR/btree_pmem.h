@@ -34,7 +34,7 @@
 #include "pptr.hpp"
 #include "ralloc.hpp"
 
-const size_t FASTFAIR_PMEM_SIZE = ((32LU << 30));
+const size_t FASTFAIR_PMEM_SIZE = ((100LU << 30));
 
 #define PAGESIZE 512
 
