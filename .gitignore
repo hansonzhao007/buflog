@@ -6,4 +6,3 @@
 **/*.log
 **/bin/*
 **/ycsb_bench
-**/ralloc

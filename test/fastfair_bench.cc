@@ -17,9 +17,13 @@
 #include <thread>  // std::thread
 #include <vector>
 
+#ifdef PMEM_BUFLOG
 #include "FAST_FAIR/btree_pmem_buflog.h"
-// #include "FAST_FAIR/btree_pmem.h"
-// #include "FAST_FAIR/btree.h"
+#elif defined(PMEM)
+#include "FAST_FAIR/btree_pmem.h"
+#else
+#include "FAST_FAIR/btree_dram.h"
+#endif
 
 #include <gflags/gflags.h>
 
@@ -379,6 +383,7 @@ public:
                 method = &Benchmark::DoWriteLat;
             } else if (name == "recover") {
                 fresh_db = false;
+                thread = 1;
                 tree_ = RecoverBtree ();
                 method = nullptr;
             } else if (name == "overwrite") {
@@ -933,6 +938,14 @@ private:
     void PrintHeader () {
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
+#ifdef __BTREE_PMEM_BUFLOG_H
+        fprintf (stdout, "Name:                  fastfair_buflog\n");
+#elif defined(__BTREE_PMEM_H)
+        fprintf (stdout, "Name:                  fastfair_pmem\n");
+#else
+        fprintf (stdout, "Name:                  fastfair\n");
+#endif
+        fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);
         fprintf (stdout, "Read:                  %lu \n", (uint64_t)FLAGS_read);

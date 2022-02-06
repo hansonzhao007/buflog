@@ -1,8 +1,7 @@
-#include "FAST_FAIR/btree_pmem_buflog.h"
-// #include "FAST_FAIR/btree_pmem.h"
-
+// #include "FAST_FAIR/btree_pmem_buflog.h"
 #include <iostream>
 
+#include "FAST_FAIR/btree_pmem.h"
 #include "test_util.h"
 
 // ralloc

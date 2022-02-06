@@ -1406,9 +1406,7 @@ public:
             // printf("Initial Bucket iter at ai: %u, si: %u\n", cell_i_, *bitmap_);
         }
 
-        explicit operator bool () const {
-            return (cell_i_ < cell_count_) || (cell_count_ == cell_count_ && bitmap_);
-        }
+        explicit operator bool () const { return (cell_i_ < cell_count_); }
 
         // ++iterator
         inline BucketIterator& operator++ () {
@@ -1519,7 +1517,7 @@ public:
                 rehash_count.fetch_add (counts, std::memory_order_relaxed);
             });
         }
-        std::for_each (workers.begin (), workers.end (), [](std::thread& t) { t.join (); });
+        std::for_each (workers.begin (), workers.end (), [] (std::thread& t) { t.join (); });
         double rehash_duration = util::NowMicros () - rehash_start;
         printf ("Real rehash speed: %f Mops/s. entries: %lu, duration: %.2f s.\n",
                 (double)rehash_count / rehash_duration, rehash_count.load (),

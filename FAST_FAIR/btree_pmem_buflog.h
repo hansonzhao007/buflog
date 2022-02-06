@@ -59,7 +59,7 @@ const size_t FASTFAIR_PMEM_DATALOG_SIZE = ((16LU << 30));
     } while (0);
 #endif
 
-#define CONFIG_BUFNODE
+// #define CONFIG_BUFNODE
 // #define CONFIG_DRAM_INNER
 // #define CONFIG_OUT_OF_PLACE_MERGE
 
@@ -117,9 +117,7 @@ public:
     void btree_insert_internal (char*, entry_key_t, char*, uint32_t);
     void btree_update_internal (entry_key_t key, char* new_leafnode_ptr, uint32_t level);
     void btree_update_prev_sibling (entry_key_t key, char* new_leafnode_ptr);
-    // void btree_delete(entry_key_t);
-    // void btree_delete_internal(entry_key_t, char *, uint32_t, entry_key_t *,
-    //                            bool *, page **);
+
     char* btree_search (entry_key_t);
     page* btree_search_internal (entry_key_t, int& pi);  // search key's leafnode
     void btree_search_range (entry_key_t, entry_key_t, unsigned long*);

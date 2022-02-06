@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "buflog.hasher.h"
+#include "buflog.util.h"
 #include "logger.h"
 #include "slice.h"
 #include "turbo_hash.h"
@@ -31,143 +33,6 @@ inline void BUFLOG_COMPILER_FENCE () {
 }
 
 namespace buflog {
-
-inline std::string print_binary (uint16_t bitmap) {
-    char buffer[1024];
-    static std::string bit_rep[16] = {"0000", "0001", "0010", "0011", "0100", "0101",
-                                      "0110", "0111", "1000", "1001", "1010", "1011",
-                                      "1100", "1101", "1110", "1111"};
-    sprintf (buffer, "%s%s%s%s", bit_rep[(bitmap >> 12) & 0x0F].c_str (),
-             bit_rep[(bitmap >> 8) & 0x0F].c_str (), bit_rep[(bitmap >> 4) & 0x0F].c_str (),
-             bit_rep[(bitmap >> 0) & 0x0F].c_str ());
-    return buffer;
-}
-
-inline bool isPowerOfTwo (size_t n) {
-    return (n != 0 && (__builtin_popcount (n >> 32) + __builtin_popcount (n & 0xFFFFFFFF)) == 1);
-}
-
-// Usage example:
-// BitSet bitset(0x05);
-// for (int i : bitset) {
-//     printf("i: %d\n", i);
-// }
-// this will print out 0, 2
-class BitSet {
-public:
-    BitSet () : bits_ (0) {}
-
-    explicit BitSet (uint32_t bits) : bits_ (bits) {}
-
-    BitSet (const BitSet& b) { bits_ = b.bits_; }
-
-    inline int validCount (void) { return __builtin_popcount (bits_); }
-
-    inline BitSet& operator++ () {
-        // remove the lowest 1-bit
-        bits_ &= (bits_ - 1);
-        return *this;
-    }
-
-    inline explicit operator bool () const { return bits_ != 0; }
-
-    inline int operator* () const {
-        // count the tailing zero bit
-        return __builtin_ctz (bits_);
-    }
-
-    inline BitSet begin () const { return *this; }
-
-    inline BitSet end () const { return BitSet (0); }
-
-    inline uint32_t bit () { return bits_; }
-
-private:
-    friend bool operator== (const BitSet& a, const BitSet& b) { return a.bits_ == b.bits_; }
-    friend bool operator!= (const BitSet& a, const BitSet& b) { return a.bits_ != b.bits_; }
-    uint32_t bits_;
-};
-
-/** Hasher
- *  @note: provide hash function for string
- */
-class Hasher {
-public:
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-    using uint128_t = unsigned __int128;
-#pragma GCC diagnostic pop
-#endif
-
-    static inline uint64_t umul128 (uint64_t a, uint64_t b, uint64_t* high) noexcept {
-        auto result = static_cast<uint128_t> (a) * static_cast<uint128_t> (b);
-        *high = static_cast<uint64_t> (result >> 64U);
-        return static_cast<uint64_t> (result);
-    }
-
-    static inline size_t hash (const void* key, int len) { return ((MurmurHash64A (key, len))); }
-
-    static inline size_t hash_int (uint64_t obj) noexcept {
-        // 167079903232 masksum, 120428523 ops best: 0xde5fb9d2630458e9
-        static constexpr uint64_t k = UINT64_C (0xde5fb9d2630458e9);
-        uint64_t h;
-        uint64_t l = umul128 (obj, k, &h);
-        return h + l;
-    }
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
-    static inline uint64_t MurmurHash64A (const void* key, int len) {
-        const uint64_t m = UINT64_C (0xc6a4a7935bd1e995);
-        const uint64_t seed = UINT64_C (0xe17a1465);
-        const int r = 47;
-
-        uint64_t h = seed ^ (len * m);
-
-        const uint64_t* data = (const uint64_t*)key;
-        const uint64_t* end = data + (len / 8);
-
-        while (data != end) {
-            uint64_t k = *data++;
-
-            k *= m;
-            k ^= k >> r;
-            k *= m;
-
-            h ^= k;
-            h *= m;
-        }
-
-        const unsigned char* data2 = (const unsigned char*)data;
-
-        switch (len & 7) {
-            case 7:
-                h ^= ((uint64_t)data2[6]) << 48;
-            case 6:
-                h ^= ((uint64_t)data2[5]) << 40;
-            case 5:
-                h ^= ((uint64_t)data2[4]) << 32;
-            case 4:
-                h ^= ((uint64_t)data2[3]) << 24;
-            case 3:
-                h ^= ((uint64_t)data2[2]) << 16;
-            case 2:
-                h ^= ((uint64_t)data2[1]) << 8;
-            case 1:
-                h ^= ((uint64_t)data2[0]);
-                h *= m;
-        };
-
-        h ^= h >> r;
-        h *= m;
-        h ^= h >> r;
-
-        return h;
-    }
-#pragma GCC diagnostic pop
-
-};  // end fo class Hasher
 
 /** A redo log that connect log entry with linked list.
  *  Note: After we link the log entries with linked list, we
@@ -396,7 +261,7 @@ public:
 
         inline DataLogNodeMeta operator* () const { return *this->operator-> (); }
 
-        inline DataLogNodeMeta* operator-> (void)const {
+        inline DataLogNodeMeta* operator-> (void) const {
             uint8_t data_size = *reinterpret_cast<uint8_t*> (log_addr_ + front_off_);
             return reinterpret_cast<DataLogNodeMeta*> (log_addr_ + front_off_ + 1 + data_size);
         }
@@ -437,7 +302,7 @@ public:
 
         inline DataLogNodeMeta operator* () const { return *this->operator-> (); }
 
-        inline DataLogNodeMeta* operator-> (void)const {
+        inline DataLogNodeMeta* operator-> (void) const {
             DataLogNodeMeta* node_meta = reinterpret_cast<DataLogNodeMeta*> (
                 log_addr_ + end_off_ - sizeof (DataLogNodeMeta));
             return node_meta;
@@ -481,7 +346,7 @@ public:
 
         inline DataLogNodeMeta operator* () const { return *this->operator-> (); }
 
-        inline DataLogNodeMeta* operator-> (void)const {
+        inline DataLogNodeMeta* operator-> (void) const {
             DataLogNodeMeta* node_meta = reinterpret_cast<DataLogNodeMeta*> (log_addr_ + next_off_);
             return node_meta;
         }

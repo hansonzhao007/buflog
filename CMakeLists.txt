@@ -100,14 +100,29 @@ endfunction(db_test)
 function(db_exe src_file)
   get_filename_component(target_name "${src_file}" NAME_WE)
   set (case_name ${target_name})
-  add_executable("${case_name}" "${src_file}")
-  target_link_libraries("${case_name}" ${PROJECT_LINK_LIBS} ${THIRDPARTY_LIBS})
+  
+  if (${ARGC} EQUAL 3)
+    # db_exe(src_file binary_name macro)    
+    set (case_name ${ARGV1})       
+    add_executable("${case_name}" "${src_file}") 
+    target_link_libraries("${case_name}" ${PROJECT_LINK_LIBS} ${THIRDPARTY_LIBS})
+    target_compile_definitions("${case_name}" PRIVATE ${ARGV2}=1)    
+  elseif (${ARGC} EQUAL 2)
+    # db_exe(src_file macro)    
+    add_executable("${case_name}" "${src_file}")
+    target_link_libraries("${case_name}" ${PROJECT_LINK_LIBS} ${THIRDPARTY_LIBS})
+    target_compile_definitions("${case_name}" PRIVATE ${ARGV1}=1)    
+  else()
+    # db_exe(src_file)    
+    add_executable("${case_name}" "${src_file}")
+    target_link_libraries("${case_name}" ${PROJECT_LINK_LIBS} ${THIRDPARTY_LIBS})        
+  endif() 
+  
   target_sources("${case_name}"
       PRIVATE
       "${src_file}"
   )
 endfunction(db_exe)
-
 
 # The add_subdirectory will add CMakeLists.txt under src and tests into your project.
 add_subdirectory(CCEH/src)

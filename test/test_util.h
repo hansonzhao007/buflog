@@ -326,10 +326,10 @@ public:
         printf ("generate %lu keys\n", count);
         auto starttime = std::chrono::system_clock::now ();
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, count),
-                           [&](const tbb::blocked_range<uint64_t>& range) {
+                           [&] (const tbb::blocked_range<uint64_t>& range) {
                                for (uint64_t i = range.begin (); i != range.end (); i++) {
                                    //    uint64_t num = u64Rand (1LU, kRandNumMax);
-                                   keys_[i] = i;
+                                   keys_[i] = i + 1;
                                }
                            });
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
@@ -345,7 +345,7 @@ public:
         // printf ("randomize %lu keys\n", keys_.size ());
         // auto starttime = std::chrono::system_clock::now ();
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, keys_.size ()),
-                           [&](const tbb::blocked_range<uint64_t>& range) {
+                           [&] (const tbb::blocked_range<uint64_t>& range) {
                                auto rng = std::default_random_engine{};
                                std::shuffle (keys_.begin () + range.begin (),
                                              keys_.begin () + range.end (), rng);
