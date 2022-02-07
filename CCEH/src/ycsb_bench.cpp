@@ -19,8 +19,9 @@
 #include <vector>
 
 #include "CCEH.h"
-#include "cceh_util.h"
 #include "histogram.h"
+#include "test_util.h"
+using namespace util;
 
 #define likely(x) (__builtin_expect (false || (x), true))
 #define unlikely(x) (__builtin_expect (x, 0))

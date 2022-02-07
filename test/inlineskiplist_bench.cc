@@ -1,3 +1,4 @@
+#include <libpmemobj.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -917,9 +918,9 @@ private:
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
 #ifndef BUFLOG
-        fprintf (stdout, "HasBuflog:            false\n");
+        fprintf (stdout, "HasBuflog:             false\n");
 #else
-        fprintf (stdout, "HasBuflog:            true\n");
+        fprintf (stdout, "HasBuflog:             true\n");
 #endif
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);
@@ -936,8 +937,8 @@ private:
 int main (int argc, char* argv[]) {
     ParseCommandLineFlags (&argc, &argv, true);
 
-    // int sds_write_value = 0;
-    // pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
+    int sds_write_value = 0;
+    pmemobj_ctl_set (NULL, "sds.at_create", &sds_write_value);
 
     Benchmark benchmark;
     benchmark.Run ();

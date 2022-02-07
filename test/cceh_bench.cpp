@@ -19,8 +19,9 @@
 #include <vector>
 
 #include "CCEH_buflog.h"
-#include "cceh_util.h"
 #include "histogram.h"
+#include "test_util.h"
+using namespace util;
 
 #define likely(x) (__builtin_expect (false || (x), true))
 #define unlikely(x) (__builtin_expect (x, 0))
@@ -701,7 +702,7 @@ public:
                     D_RW (hashtable_)->Insert (pop_, key, reinterpret_cast<Value_t> (key));
                     insert++;
                 } else {
-                    auto ret = D_RW (hashtable_)->Get (key);
+                    D_RW (hashtable_)->Get (key);
                     find++;
                 }
             }

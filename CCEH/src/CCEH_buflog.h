@@ -40,12 +40,12 @@ constexpr size_t kSegmentBits = 8;
 constexpr size_t kMask = (1 << kSegmentBits) - 1;
 constexpr size_t kShift = kSegmentBits;
 constexpr size_t kSegmentSize = (1 << kSegmentBits) * 16 * 4;
-constexpr size_t kWriteBufferSize = kSegmentSize / 2 / 256;
+constexpr size_t kWriteBufferSize = kSegmentSize / 2;
 constexpr size_t kNumPairPerCacheLine = 4;
 constexpr size_t kNumCacheLine = 8;
 constexpr size_t kCuckooThreshold = 16;
 
-using WriteBuffer = buflog::WriteBuffer<kWriteBufferSize>;
+using WriteBuffer = buflog::WriteBuffer<kWriteBufferSize / 256>;
 // constexpr size_t kCuckooThreshold = 32;
 
 struct Segment {

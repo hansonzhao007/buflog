@@ -1860,6 +1860,7 @@ size_t InlineSkipList<Comparator>::Compact (Node* node /* bufnode */, Node* next
                 DEBUG ("link node(0x%lx) next[%ld] -> node (0x%lx). %ld -> %ld",
                        splice_partition.next_[l], l, new_node,
                        *(size_t*)splice_partition.next_[l]->Key (), key);
+
                 splice_partition.next_[l]->SetNextNoFlush (l, new_node);
 #endif
             }

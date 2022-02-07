@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-#include "src/slice.h"
+#include "slice.h"
 
 #define KEY_LEN ((15))
 
@@ -291,13 +291,15 @@ public:
         if (outer_imc_write_addr) *outer_imc_write_addr = imc_write_size_MB;
         if (outer_media_read_addr) *outer_media_read_addr = media_read_size_MB;
         if (outer_media_write_addr) *outer_media_write_addr = media_write_size_MB;
+
+        printf (
+            "--------------------------------------------------------------------------------------"
+            "\n");
+        printf (
+            "DIMM  | Read from IMC | Write from IMC |   Read DIMM |   Write DIMM |     RA |     WA "
+            "|\n");
         for (int i = 0; i < dimm_num; i++) {
-            printf (
-                "DIMM%d | Read from IMC | Write from IMC |  Read DIMM  |  Write "
-                "DIMM  |   "
-                "RA   |   WA   |\n",
-                i);
-            printf ("  MB  | %13.2f | %14.2f | %11.2f | %12.2f | %6.2f | %6.2f |\n",
+            printf ("  %-2d  | %13.2f | %14.2f | %11.2f | %12.2f | %6.2f | %6.2f |\n", i,
                     TotalReadRequests_.at (i), TotalWriteRequests_.at (i), TotalMediaReads_.at (i),
                     TotalMediaWrites_.at (i), (TotalMediaReads_.at (i) / TotalReadRequests_.at (i)),
                     (TotalMediaWrites_.at (i) / TotalWriteRequests_.at (i)));
@@ -305,11 +307,18 @@ public:
 
         double seconds = duration.count () / 1000.0;
         printf (
-            "*SUM* | DIMM-R: %7.1f MB/s. User-R: %7.1f MB/s   | DIMM-W: %7.1f "
-            "MB/s, "
-            "User-W: %7.1f MB/s. Time: %6.2fs\n",
-            media_read_size_MB / seconds, imc_read_size_MB / seconds, media_write_size_MB / seconds,
-            imc_write_size_MB / seconds, seconds);
+            "--------------------------------------------------------------------------------------"
+            "\n");
+        printf (
+            " SUM:\n"
+            " DIMM-R: %7.1f MB/s, %7.1f MB\n"
+            " User-R: %7.1f MB/s, %7.1f MB\n"
+            " DIMM-W: %7.1f MB/s, %7.1f MB\n"
+            " User-W: %7.1f MB/s, %7.1f MB\n"
+            "   Time: %7.1f s\n",
+            media_read_size_MB / seconds, media_read_size_MB, imc_read_size_MB / seconds,
+            imc_read_size_MB, media_write_size_MB / seconds, media_write_size_MB,
+            imc_write_size_MB / seconds, imc_write_size_MB, seconds);
 
         delete start;
         delete end;
@@ -342,17 +351,17 @@ public:
     ~RandomKeyTrace () {}
 
     void Randomize (void) {
-        // printf ("randomize %lu keys\n", keys_.size ());
-        // auto starttime = std::chrono::system_clock::now ();
+        printf ("randomize %lu keys\n", keys_.size ());
+        auto starttime = std::chrono::system_clock::now ();
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, keys_.size ()),
                            [&] (const tbb::blocked_range<uint64_t>& range) {
                                auto rng = std::default_random_engine{};
                                std::shuffle (keys_.begin () + range.begin (),
                                              keys_.begin () + range.end (), rng);
                            });
-        // auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
-        //     std::chrono::system_clock::now () - starttime);
-        // printf ("randomize duration %f s.\n", duration.count () / 1000000.0);
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
+            std::chrono::system_clock::now () - starttime);
+        printf ("randomize duration %f s.\n", duration.count () / 1000000.0);
     }
 
     class RangeIterator {
@@ -425,100 +434,100 @@ public:
     std::vector<size_t> keys_;
 };
 
-class RandomKeyTraceString {
-public:
-    RandomKeyTraceString (size_t count) {
-        count_ = count;
-        keys_.resize (count);
-        for (size_t i = 0; i < count; i++) {
-            char buf[128];
-            sprintf (buf, "%0.*lu", KEY_LEN, i);
-            keys_[i] = std::string (buf, KEY_LEN);
-        }
-        Randomize ();
-        keys_non_ = keys_;
-        for (size_t i = 0; i < count; i++) {
-            keys_non_[i][0] = 'a';
-        }
-    }
+// class RandomKeyTraceString {
+// public:
+//     RandomKeyTraceString (size_t count) {
+//         count_ = count;
+//         keys_.resize (count);
+//         for (size_t i = 0; i < count; i++) {
+//             char buf[128];
+//             sprintf (buf, "%0.*lu", KEY_LEN, i);
+//             keys_[i] = std::string (buf, KEY_LEN);
+//         }
+//         Randomize ();
+//         keys_non_ = keys_;
+//         for (size_t i = 0; i < count; i++) {
+//             keys_non_[i][0] = 'a';
+//         }
+//     }
 
-    ~RandomKeyTraceString () {}
+//     ~RandomKeyTraceString () {}
 
-    void Randomize (void) {
-        printf ("Randomize the trace...\r");
-        fflush (nullptr);
-        std::shuffle (std::begin (keys_), std::end (keys_), rng);
-    }
+//     void Randomize (void) {
+//         printf ("Randomize the trace...\r");
+//         fflush (nullptr);
+//         std::shuffle (std::begin (keys_), std::end (keys_), rng);
+//     }
 
-    class RangeIterator {
-    public:
-        RangeIterator (std::vector<std::string>* pkey_vec, size_t start, size_t end)
-            : pkey_vec_ (pkey_vec), end_index_ (end), cur_index_ (start) {}
+//     class RangeIterator {
+//     public:
+//         RangeIterator (std::vector<std::string>* pkey_vec, size_t start, size_t end)
+//             : pkey_vec_ (pkey_vec), end_index_ (end), cur_index_ (start) {}
 
-        inline bool Valid () { return (cur_index_ < end_index_); }
+//         inline bool Valid () { return (cur_index_ < end_index_); }
 
-        inline std::string& Next () { return (*pkey_vec_)[cur_index_++]; }
+//         inline std::string& Next () { return (*pkey_vec_)[cur_index_++]; }
 
-        std::vector<std::string>* pkey_vec_;
-        size_t end_index_;
-        size_t cur_index_;
-    };
+//         std::vector<std::string>* pkey_vec_;
+//         size_t end_index_;
+//         size_t cur_index_;
+//     };
 
-    class Iterator {
-    public:
-        Iterator (std::vector<std::string>* pkey_vec, size_t start_index, size_t range)
-            : pkey_vec_ (pkey_vec),
-              range_ (range),
-              end_index_ (start_index % range_),
-              cur_index_ (start_index % range_),
-              begin_ (true) {}
+//     class Iterator {
+//     public:
+//         Iterator (std::vector<std::string>* pkey_vec, size_t start_index, size_t range)
+//             : pkey_vec_ (pkey_vec),
+//               range_ (range),
+//               end_index_ (start_index % range_),
+//               cur_index_ (start_index % range_),
+//               begin_ (true) {}
 
-        Iterator () {}
+//         Iterator () {}
 
-        inline bool Valid () { return (begin_ || cur_index_ != end_index_); }
+//         inline bool Valid () { return (begin_ || cur_index_ != end_index_); }
 
-        inline std::string& Next () {
-            begin_ = false;
-            size_t index = cur_index_;
-            cur_index_++;
-            if (cur_index_ >= range_) {
-                cur_index_ = 0;
-            }
-            return (*pkey_vec_)[index];
-        }
+//         inline std::string& Next () {
+//             begin_ = false;
+//             size_t index = cur_index_;
+//             cur_index_++;
+//             if (cur_index_ >= range_) {
+//                 cur_index_ = 0;
+//             }
+//             return (*pkey_vec_)[index];
+//         }
 
-        std::string Info () {
-            char buffer[128];
-            sprintf (buffer, "valid: %s, cur i: %lu, end_i: %lu, range: %lu",
-                     Valid () ? "true" : "false", cur_index_, end_index_, range_);
-            return buffer;
-        }
+//         std::string Info () {
+//             char buffer[128];
+//             sprintf (buffer, "valid: %s, cur i: %lu, end_i: %lu, range: %lu",
+//                      Valid () ? "true" : "false", cur_index_, end_index_, range_);
+//             return buffer;
+//         }
 
-        std::vector<std::string>* pkey_vec_;
-        size_t range_;
-        size_t end_index_;
-        size_t cur_index_;
-        bool begin_;
-    };
+//         std::vector<std::string>* pkey_vec_;
+//         size_t range_;
+//         size_t end_index_;
+//         size_t cur_index_;
+//         bool begin_;
+//     };
 
-    Iterator trace_at (size_t start_index, size_t range) {
-        return Iterator (&keys_, start_index, range);
-    }
+//     Iterator trace_at (size_t start_index, size_t range) {
+//         return Iterator (&keys_, start_index, range);
+//     }
 
-    Iterator nontrace_at (size_t start_index, size_t range) {
-        return Iterator (&keys_non_, start_index, range);
-    }
+//     Iterator nontrace_at (size_t start_index, size_t range) {
+//         return Iterator (&keys_non_, start_index, range);
+//     }
 
-    RangeIterator Begin (void) { return RangeIterator (&keys_, 0, keys_.size ()); }
+//     RangeIterator Begin (void) { return RangeIterator (&keys_, 0, keys_.size ()); }
 
-    RangeIterator iterate_between (size_t start, size_t end) {
-        return RangeIterator (&keys_, start, end);
-    }
+//     RangeIterator iterate_between (size_t start, size_t end) {
+//         return RangeIterator (&keys_, start, end);
+//     }
 
-    size_t count_;
-    std::vector<std::string> keys_;
-    std::vector<std::string> keys_non_;
-};
+//     size_t count_;
+//     std::vector<std::string> keys_;
+//     std::vector<std::string> keys_non_;
+// };
 
 enum YCSBOpType { kYCSB_Write, kYCSB_Read, kYCSB_Query, kYCSB_ReadModifyWrite };
 

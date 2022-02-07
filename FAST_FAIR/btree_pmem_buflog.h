@@ -610,7 +610,7 @@ public:
         // If this node has a sibling node,
         if (hdr.GetSiblingPtr () != nullptr && (hdr.GetSiblingPtr () != invalid_sibling)) {
             // Compare this key with the first key of the sibling
-            if ((hdr.hkey != UINT64_MAX && key >= hdr.hkey) || hdr.immutable == 1) {
+            if ((hdr.hkey != UINT64_MAX && (uint64_t)key >= hdr.hkey) || hdr.immutable == 1) {
                 if (with_lock) {
                     hdr.mtx.unlock ();  // Unlock the write lock
                 }
@@ -733,10 +733,6 @@ public:
             // step 2. migrate half of keys into the sibling
             int sibling_cnt = 0;
             if (hdr.GetLeftMostPtr () == nullptr) {  // leaf node
-                BUFLOG_INFO (
-                    "Begin Split at leafnode 0x%lx (hkey: %ld, dram: %d). Split key: %ld. key %ld. "
-                    "lefmost leaf 0x%lx",
-                    this, hdr.hkey, hdr.is_dram, split_key, key, tmp_lm);
                 BUFLOG_INFO ("Create new leafnode 0x%lx (hkey: %ld) (dram: %d) for spliting",
                              sibling, sibling->hdr.hkey, sibling->hdr.is_dram);
                 // !buflog: migrate both bufnode and leafnode entries to sibling
@@ -1373,10 +1369,10 @@ btree* CreateBtree (void) {
 btree* RecoverBtree (void) {
     // Step1. Open the pmem file
     bool res = RP_init ("fastfair", FASTFAIR_PMEM_SIZE);
-
+    btree* btree_root = nullptr;
     if (res) {
         printf ("Ralloc Prepare to recover\n");
-        btree* btree_root = RP_get_root<btree> (0);
+        btree_root = RP_get_root<btree> (0);
         int recover_res = RP_recover ();
         if (recover_res == 1) {
             printf ("Ralloc Dirty open, recover\n");
@@ -1388,7 +1384,7 @@ btree* RecoverBtree (void) {
         // exit(1);
     }
 
-    btree* btree_root = RP_get_root<btree> (0);
+    btree_root = RP_get_root<btree> (0);
     btree_root->root = btree_root->root_pmem_;
     btree::datalog_.Open (btree_root->datalog_addr_);
     return btree_root;
@@ -1585,7 +1581,7 @@ void btree::btree_insert (entry_key_t key, char* right) {  // need to be string
         }
     } else {
         p->hdr.mtx.lock ();
-        if (key >= p->hdr.hkey || p->hdr.immutable) {
+        if ((uint64_t)key >= p->hdr.hkey || p->hdr.immutable) {
             // the first leafnode just split
             BUFLOG_INFO (
                 "Insert key %ld retry. key is larger than first leafnode 0x%lx 's hkey: %ld", key,
@@ -1640,7 +1636,7 @@ void btree::btree_update_internal (entry_key_t key, char* ptr, uint32_t level) {
         exit (1);
     }
 
-    while (p->hdr.hkey != UINT64_MAX && key >= p->hdr.hkey) {
+    while (p->hdr.hkey != UINT64_MAX && (uint64_t)key >= p->hdr.hkey) {
         p = p->hdr.GetSiblingPtr ();
     }
 
@@ -1653,7 +1649,6 @@ void btree::btree_update_internal (entry_key_t key, char* ptr, uint32_t level) {
 void btree::btree_update_prev_sibling (entry_key_t key, char* ptr) {
     page* p = this->root;
 
-    page* parent = nullptr;
     int pi = -2;
 
     // find the leaf node
@@ -1679,7 +1674,7 @@ void btree::btree_insert_internal (char* left, entry_key_t key, char* right, uin
         p = (page*)p->linear_search (key, pi);
     }
 
-    while (p->hdr.hkey != UINT64_MAX && key >= p->hdr.hkey) {
+    while (p->hdr.hkey != UINT64_MAX && (uint64_t)key >= p->hdr.hkey) {
         p = p->hdr.GetSiblingPtr ();
     }
 

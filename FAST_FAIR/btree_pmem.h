@@ -260,7 +260,7 @@ public:
                 }
 
                 // Remove the key from this node
-                bool ret = remove_key (key);
+                remove_key (key);
 
                 if (with_lock) {
                     hdr.mtx->unlock ();
@@ -948,7 +948,7 @@ btree* RecoverBtree (void) {
 
     if (res) {
         printf ("Ralloc Prepare to recover\n");
-        btree* btree_root = RP_get_root<btree> (0);
+        RP_get_root<btree> (0);
         int recover_res = RP_recover ();
         if (recover_res == 1) {
             printf ("Ralloc Dirty open, recover\n");

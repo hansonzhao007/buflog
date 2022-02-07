@@ -33,7 +33,7 @@ public:
 
     explicit BitSet (uint32_t bits) : bits_ (bits) {}
 
-    BitSet (const BitSet& b) { bits_ = b.bits_; }
+    // BitSet (const BitSet& b) { bits_ = b.bits_; }
 
     inline int validCount (void) { return __builtin_popcount (bits_); }
 
