@@ -1,4 +1,4 @@
-#include <libpmemobj.h>
+#include <gflags/gflags.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -18,17 +18,12 @@
 #include <thread>  // std::thread
 #include <vector>
 
-#ifdef PMEM_BUFLOG
-#include "Skiplist/inlineskiplist_buflog.h"
-#else
-#include "Skiplist/inlineskiplist.h"
-#endif
-
-#include <gflags/gflags.h>
-
-#include "../src/logger.h"
+#include "btree.h"
 #include "histogram.h"
 #include "test_util.h"
+
+#define likely(x) (__builtin_expect (false || (x), true))
+#define unlikely(x) (__builtin_expect (x, 0))
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
@@ -49,45 +44,6 @@ DEFINE_string (benchmarks, "load,readall", "");
 using namespace util;
 
 namespace {
-
-// Our test skip list stores 8-byte unsigned integers
-typedef uint64_t Key;
-
-static const char* Encode (const uint64_t* key) { return reinterpret_cast<const char*> (key); }
-
-static Key Decode (const char* key) {
-    Key rv;
-    memcpy (&rv, key, sizeof (Key));
-    return rv;
-}
-
-struct TestComparator {
-    typedef Key DecodedType;
-
-    static DecodedType decode_key (const char* b) { return Decode (b); }
-
-    int operator() (const char* a, const char* b) const {
-        if (Decode (a) < Decode (b)) {
-            return -1;
-        } else if (Decode (a) > Decode (b)) {
-            return +1;
-        } else {
-            return 0;
-        }
-    }
-
-    int operator() (const char* a, const DecodedType b) const {
-        if (Decode (a) < b) {
-            return -1;
-        } else if (Decode (a) > b) {
-            return +1;
-        } else {
-            return 0;
-        }
-    }
-};
-
-typedef ROCKSDB_NAMESPACE::InlineSkipList<TestComparator> SkipList;
 
 class Stats {
 public:
@@ -374,14 +330,14 @@ public:
     size_t writes_;
     RandomKeyTrace* key_trace_;
     size_t trace_size_;
-    SkipList* skiplist_;
+    btree* tree_;
     Benchmark ()
         : num_ (FLAGS_num),
           value_size_ (FLAGS_value_size),
           reads_ (FLAGS_read),
           writes_ (FLAGS_write),
           key_trace_ (nullptr),
-          skiplist_ (nullptr) {}
+          tree_ (nullptr) {}
 
     ~Benchmark () {}
 
@@ -413,15 +369,22 @@ public:
             if (name == "load") {
                 fresh_db = true;
                 method = &Benchmark::DoWrite;
-            }
-            if (name == "loadlat") {
+            } else if (name == "loadlat") {
                 fresh_db = true;
                 print_hist = true;
                 method = &Benchmark::DoWriteLat;
+            } else if (name == "recover") {
+                fresh_db = false;
+                thread = 1;
+                tree_ = RecoverBtree ();
+                method = nullptr;
+            } else if (name == "overwrite") {
+                fresh_db = false;
+                key_trace_->Randomize ();
+                method = &Benchmark::DoOverWrite;
             } else if (name == "readrandom") {
                 fresh_db = false;
                 key_trace_->Randomize ();
-                thread = 1;
                 method = &Benchmark::DoRead;
             } else if (name == "readall") {
                 fresh_db = false;
@@ -456,11 +419,19 @@ public:
             } else if (name == "ycsbd") {
                 fresh_db = false;
                 method = &Benchmark::YCSBD;
+            } else if (name == "ycsbf") {
+                fresh_db = false;
+                key_trace_->Randomize ();
+                method = &Benchmark::YCSBF;
+            } else if (name == "print") {
+                fresh_db = false;
+                thread = 1;
+                method = &Benchmark::PrintTree;
             }
 
             if (fresh_db) {
-                SkipList::DestroySkipList ();
-                skiplist_ = SkipList::CreateSkiplist (TestComparator ());
+                DistroyBtree ();
+                tree_ = CreateBtree ();
             }
 
             IPMWatcher watcher (name);
@@ -477,14 +448,15 @@ public:
         size_t start_offset = random () % trace_size_;
         auto key_iterator = key_trace_->trace_at (start_offset, trace_size_);
         size_t not_find = 0;
+
         Duration duration (FLAGS_readtime, reads_);
         thread->stats.Start ();
         while (!duration.Done (batch) && key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
                 size_t ikey = key_iterator.Next ();
-                auto ret = skiplist_->Contains (Encode (&ikey));
-                if (ret == false) {
+                auto ret = tree_->btree_search (ikey);
+                if (ret == nullptr) {
                     not_find++;
                 }
             }
@@ -506,22 +478,22 @@ public:
         auto key_iterator = key_trace_->iterate_between (start_offset, start_offset + interval);
 
         size_t not_find = 0;
+
         Duration duration (FLAGS_readtime, reads_);
         thread->stats.Start ();
         while (!duration.Done (batch) && key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
                 size_t ikey = key_iterator.Next ();
-                auto ret = skiplist_->Contains (Encode (&ikey));
-                if (ret == false) {
+                auto ret = tree_->btree_search (ikey);
+                if (ret == nullptr) {
                     not_find++;
-                    INFO ("Not find %ld", ikey);
                 }
             }
             thread->stats.FinishedBatchOp (j);
         }
         char buf[100];
-        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", interval, not_find);
+        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", reads_, not_find);
         if (not_find)
             printf ("thread %2d num: %lu, not find: %lu\n", thread->tid, interval, not_find);
         thread->stats.AddMessage (buf);
@@ -536,14 +508,15 @@ public:
         size_t start_offset = random () % trace_size_;
         auto key_iterator = key_trace_->trace_at (start_offset, trace_size_);
         size_t not_find = 0;
+
         Duration duration (FLAGS_readtime, reads_);
         thread->stats.Start ();
         while (!duration.Done (batch) && key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
                 size_t ikey = key_iterator.Next () + num_;
-                auto ret = skiplist_->Contains (Encode (&ikey));
-                if (ret == false) {
+                auto ret = tree_->btree_search (ikey);
+                if (ret == nullptr) {
                     not_find++;
                 }
             }
@@ -562,17 +535,18 @@ public:
         size_t start_offset = random () % trace_size_;
         auto key_iterator = key_trace_->trace_at (start_offset, trace_size_);
         size_t not_find = 0;
+
         Duration duration (FLAGS_readtime, reads_);
         thread->stats.Start ();
         while (!duration.Done (1) && key_iterator.Valid ()) {
             size_t ikey = key_iterator.Next ();
 
             auto time_start = NowNanos ();
-            auto ret = skiplist_->Contains (Encode (&ikey));
+            auto ret = tree_->btree_search (ikey);
             auto time_duration = NowNanos () - time_start;
 
             thread->stats.hist_.Add (time_duration);
-            if (ret == false) {
+            if (ret == nullptr) {
                 not_find++;
             }
         }
@@ -589,17 +563,18 @@ public:
         size_t start_offset = random () % trace_size_;
         auto key_iterator = key_trace_->trace_at (start_offset, trace_size_);
         size_t not_find = 0;
+
         Duration duration (FLAGS_readtime, reads_);
         thread->stats.Start ();
         while (!duration.Done (1) && key_iterator.Valid ()) {
             size_t ikey = key_iterator.Next () + num_;
 
             auto time_start = NowNanos ();
-            auto ret = skiplist_->Contains (Encode (&ikey));
+            auto ret = tree_->btree_search (ikey);
             auto time_duration = NowNanos () - time_start;
 
             thread->stats.hist_.Add (time_duration);
-            if (ret == false) {
+            if (ret == nullptr) {
                 not_find++;
             }
         }
@@ -623,14 +598,9 @@ public:
         while (key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
-                size_t* key = key_iterator.NextRef ();
-#ifndef PMEM_BUFLOG
-                char* buf = skiplist_->AllocateKey (sizeof (Key));
-                memcpy (buf, key, sizeof (Key));
-                skiplist_->InsertConcurrently (buf);
-#else
-                skiplist_->InsertConcurrently ((char*)key);
-#endif
+                size_t ikey = key_iterator.Next ();
+                // TODO:
+                tree_->btree_insert (ikey, (char*)ikey);
             }
             thread->stats.FinishedBatchOp (j);
         }
@@ -648,21 +618,35 @@ public:
 
         thread->stats.Start ();
         while (key_iterator.Valid ()) {
-            size_t* key = key_iterator.NextRef ();
+            size_t ikey = key_iterator.Next ();
 
-#ifndef PMEM_BUFLOG
-            char* buf = skiplist_->AllocateKey (sizeof (Key));
-            memcpy (buf, key, sizeof (Key));
             auto time_start = NowNanos ();
-            skiplist_->InsertConcurrently (buf);
+            tree_->btree_insert (ikey, (char*)ikey);
             auto time_duration = NowNanos () - time_start;
-#else
-            auto time_start = NowNanos ();
-            skiplist_->InsertConcurrently ((char*)key);
-            auto time_duration = NowNanos () - time_start;
-#endif
-
             thread->stats.hist_.Add (time_duration);
+        }
+        return;
+    }
+
+    void DoOverWrite (ThreadState* thread) {
+        uint64_t batch = FLAGS_batch;
+        if (key_trace_ == nullptr) {
+            perror ("DoOverWrite lack key_trace_ initialization.");
+            return;
+        }
+        size_t interval = num_ / FLAGS_thread;
+        size_t start_offset = thread->tid * interval;
+        auto key_iterator = key_trace_->iterate_between (start_offset, start_offset + interval);
+
+        thread->stats.Start ();
+        std::string val (value_size_, 'v');
+        while (key_iterator.Valid ()) {
+            uint64_t j = 0;
+            for (; j < batch && key_iterator.Valid (); j++) {
+                size_t ikey = key_iterator.Next ();
+                tree_->btree_insert (ikey, (char*)ikey);
+            }
+            thread->stats.FinishedBatchOp (j);
         }
         return;
     }
@@ -684,19 +668,12 @@ public:
         while (key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
-                size_t* key = key_iterator.NextRef ();
-
+                size_t key = key_iterator.Next ();
                 if (thread->ycsb_gen.NextA () == kYCSB_Write) {
-#ifndef PMEM_BUFLOG
-                    char* buf = skiplist_->AllocateKey (sizeof (Key));
-                    memcpy (buf, key, sizeof (Key));
-                    skiplist_->InsertConcurrently (buf);
-#else
-                    skiplist_->InsertConcurrently ((char*)key);
-#endif
+                    tree_->btree_insert (key, (char*)key);
                     insert++;
                 } else {
-                    skiplist_->Contains (Encode (key));
+                    tree_->btree_search (key);
                     find++;
                 }
             }
@@ -725,18 +702,12 @@ public:
         while (key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
-                size_t* key = key_iterator.NextRef ();
+                size_t key = key_iterator.Next ();
                 if (thread->ycsb_gen.NextB () == kYCSB_Write) {
-#ifndef PMEM_BUFLOG
-                    char* buf = skiplist_->AllocateKey (sizeof (Key));
-                    memcpy (buf, key, sizeof (Key));
-                    skiplist_->InsertConcurrently (buf);
-#else
-                    skiplist_->InsertConcurrently ((char*)key);
-#endif
+                    tree_->btree_insert (key, (char*)key);
                     insert++;
                 } else {
-                    skiplist_->Contains (Encode (key));
+                    tree_->btree_search (key);
                     find++;
                 }
             }
@@ -765,9 +736,9 @@ public:
         while (key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
-                size_t* ikey = key_iterator.NextRef ();
-                auto ret = skiplist_->Contains (Encode (ikey));
-                if (ret) {
+                size_t key = key_iterator.Next ();
+                char* ret = tree_->btree_search (key);
+                if ((size_t)ret == key) {
                     find++;
                 }
             }
@@ -799,9 +770,9 @@ public:
         while (key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
-                size_t* ikey = key_iterator.NextRef ();
-                auto ret = skiplist_->Contains (Encode (ikey));
-                if (ret) {
+                size_t key = key_iterator.Next ();
+                auto ret = tree_->btree_search (key);
+                if ((size_t)ret == (key)) {
                     find++;
                 }
             }
@@ -810,6 +781,48 @@ public:
         char buf[100];
         snprintf (buf, sizeof (buf), "(insert: %lu, read: %lu)", insert, find);
         thread->stats.AddMessage (buf);
+        return;
+    }
+
+    void YCSBF (ThreadState* thread) {
+        uint64_t batch = FLAGS_batch;
+        if (key_trace_ == nullptr) {
+            perror ("YCSBF lack key_trace_ initialization.");
+            return;
+        }
+        size_t find = 0;
+        size_t insert = 0;
+        size_t interval = num_ / FLAGS_thread;
+        size_t start_offset = thread->tid * interval;
+        auto key_iterator = key_trace_->iterate_between (start_offset, start_offset + interval);
+
+        thread->stats.Start ();
+
+        while (key_iterator.Valid ()) {
+            uint64_t j = 0;
+            for (; j < batch && key_iterator.Valid (); j++) {
+                size_t key = key_iterator.Next ();
+                if (thread->ycsb_gen.NextF () == kYCSB_Read) {
+                    auto ret = tree_->btree_search (key);
+                    if ((size_t)ret == (key)) {
+                        find++;
+                    }
+                } else {
+                    tree_->btree_search (key);
+                    tree_->btree_search (key);
+                    insert++;
+                }
+            }
+            thread->stats.FinishedBatchOp (j);
+        }
+        char buf[100];
+        snprintf (buf, sizeof (buf), "(read_modify: %lu, read: %lu)", insert, find);
+        thread->stats.AddMessage (buf);
+        return;
+    }
+
+    void PrintTree (ThreadState* thread) {
+        tree_->printAll ();
         return;
     }
 
@@ -917,18 +930,14 @@ private:
     void PrintHeader () {
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
-
-#ifdef PMEM_BUFLOG
-        fprintf (stdout, "BufNode:               true\n");
+#ifdef __BTREE_PMEM_BUFLOG_H
+        fprintf (stdout, "Name:                  fastfair_buflog\n");
+#elif defined(__BTREE_PMEM_H)
+        fprintf (stdout, "Name:                  fastfair_pmem\n");
 #else
-        fprintf (stdout, "BufNode:               false\n");
+        fprintf (stdout, "Name:                  fastfair\n");
 #endif
-
-#ifdef CONFIG_DRAM_INNER
-        fprintf (stdout, "DramInner:             true\n");
-#else
-        fprintf (stdout, "DramInner:             false\n");
-#endif
+        fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);
         fprintf (stdout, "Read:                  %lu \n", (uint64_t)FLAGS_read);
@@ -943,9 +952,6 @@ private:
 
 int main (int argc, char* argv[]) {
     ParseCommandLineFlags (&argc, &argv, true);
-
-    int sds_write_value = 0;
-    pmemobj_ctl_set (NULL, "sds.at_create", &sds_write_value);
 
     Benchmark benchmark;
     benchmark.Run ();

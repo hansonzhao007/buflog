@@ -1,3 +1,4 @@
+#include <gflags/gflags.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -17,16 +18,7 @@
 #include <thread>  // std::thread
 #include <vector>
 
-#ifdef PMEM_BUFLOG
 #include "FAST_FAIR/btree_pmem_buflog.h"
-#elif defined(PMEM)
-#include "FAST_FAIR/btree_pmem.h"
-#else
-#include "FAST_FAIR/btree_dram.h"
-#endif
-
-#include <gflags/gflags.h>
-
 #include "histogram.h"
 #include "test_util.h"
 
@@ -938,13 +930,19 @@ private:
     void PrintHeader () {
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
-#ifdef __BTREE_PMEM_BUFLOG_H
-        fprintf (stdout, "Name:                  fastfair_buflog\n");
-#elif defined(__BTREE_PMEM_H)
-        fprintf (stdout, "Name:                  fastfair_pmem\n");
+
+#ifdef CONFIG_BUFNODE
+        fprintf (stdout, "BufNode:               true\n");
 #else
-        fprintf (stdout, "Name:                  fastfair\n");
+        fprintf (stdout, "BufNode:               false\n");
 #endif
+
+#ifdef CONFIG_DRAM_INNER
+        fprintf (stdout, "DramInner:             true\n");
+#else
+        fprintf (stdout, "DramInner:             false\n");
+#endif
+
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);

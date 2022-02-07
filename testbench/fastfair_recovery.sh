@@ -1,6 +1,4 @@
 
-# recover can be tested when CONFIG_DRAM_INNER is disabled
-
 NUM=1000000
 for t in 4
 do

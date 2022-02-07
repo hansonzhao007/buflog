@@ -62,7 +62,7 @@ const size_t SKIPLIST_PMEM_SIZE = ((100LU << 30));
 #include "src/buflog.h"
 #include "src/logger.h"
 
-#define DRAM_CACHE
+// #define CONFIG_DRAM_INNER
 
 #if defined(__GNUC__) && __GNUC__ >= 4
 #define likeyly(x) (__builtin_expect ((x), 1))
@@ -956,7 +956,7 @@ InlineSkipList<Comparator>::InlineSkipList (const Comparator cmp, int32_t max_he
     head_dram_->SetBufNode (head_pmem_->BufNode ());
     head_dram_->SetPmemNode (head_pmem_);
 
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
     head_ = head_dram_;
 #else
     head_ = head_pmem_;
@@ -1180,7 +1180,7 @@ retry:
             bufnode->buf.Lock ();
 
             Node* next_bufnode = closest_bufnode->Next (kBufNodeLevel);
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
             assert (next_bufnode == nullptr || next_bufnode->isDramNode ());
 #endif
             DEBUG ("BufInsert key: %ld. Lock the bufnode 0x%lx", key_decoded, bufnode);
@@ -1244,7 +1244,7 @@ retry:
                 // Step 2. Link the lower part, only need to connect this new partition within two
                 // bufnode
                 for (int l = 0; l < lower_part_height; l++) {
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
                     bool is_splice_partition_next_dram = splice_partition.next_[l]->isDramNode ();
                     bool is_next_bufnode_dram = next_bufnode ? next_bufnode->isDramNode () : false;
                     if (is_splice_partition_next_dram && is_next_bufnode_dram) {
@@ -1311,7 +1311,7 @@ retry:
                 }
 
                 for (int l = 0; l < lower_part_height; l++) {
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
                     bool is_splice_partition_prev_dram = splice_partition.prev_[l]->isDramNode ();
                     if (is_splice_partition_prev_dram) {
                         DEBUG (
@@ -1389,7 +1389,7 @@ retry:
                     for (int i = lower_part_height; i < splice_partition.height_; i++) {
                         // link the new partition
                         while (true) {
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
                             assert (splice_partition.next_[i]->isDramNode ());
                             assert (splice_partition.prev_[i]->isDramNode ());
                             assert (splice.prev_[i]->isDramNode ());
@@ -1468,7 +1468,7 @@ retry:
                 return false;
             }
         } else {
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
             assert (closest_bufnode->isDramNode ());
 #endif
             // still not sure if we enter the closest bufnode or not
@@ -1748,7 +1748,7 @@ size_t InlineSkipList<Comparator>::Compact (Node* node /* bufnode */, Node* next
 
     // collect keys on the skiplist
     Node* cur = node->Next (0);
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
     cur = node->PmemNode ()->Next (0);
     if (next_bufnode) {
         assert (next_bufnode->isDramNode ());
@@ -1804,7 +1804,7 @@ size_t InlineSkipList<Comparator>::Compact (Node* node /* bufnode */, Node* next
             NodeMeta* node_meta = new_node->Meta ();
             node_meta->bufnode_ptr = (uint64_t) new BufNode ();
             DEBUG ("Create bufnode 0x%lx for %ld", node_meta->bufnode_ptr, key);
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
             // creaet dram cache for this node
             Node* tmp = AllocateNodeDram (sizeof (size_t), node_h);
             memcpy (const_cast<char*> (tmp->Key ()), &key, sizeof (size_t));
@@ -1824,7 +1824,7 @@ size_t InlineSkipList<Comparator>::Compact (Node* node /* bufnode */, Node* next
         if (i != 0) {
             int link_height = std::min (cur_height, node_h);
             for (int l = 0; l < link_height; l++) {
-#ifdef DRAM_CACHE
+#ifdef CONFIG_DRAM_INNER
                 bool is_next_l_dram = splice_partition.next_[l]->isDramNode ();
                 if (is_next_l_dram && is_new_node_dram) {
                     // link dram part and pmem part

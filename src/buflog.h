@@ -120,8 +120,11 @@ public:
     // create a new log with size
     bool Create (char* addr, size_t size) {
         if (!isPowerOfTwo (size)) {
-            perror ("Data log is not power of 2.");
+            // perror ("Data log is not power of 2.");
             return false;
+        }
+        if (addr == nullptr) {
+            return true;
         }
         log_size_ = size;
         log_size_mask_ = size - 1;
