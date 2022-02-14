@@ -6,7 +6,7 @@ CFLAGS := -I../test -I../src -I./ -lrt
 all: benchmark
 
 benchmark: src/ycsb_bench.cpp CCEH
-	$(CXX) $(CFLAGS) -o bench_cceh_pmem src/ycsb_bench.cpp src/CCEH_CoW.o -lpmemobj -ltbb -lpmem -lpthread -lgflags -DMULTITHREAD
+	$(CXX) $(CFLAGS) -o bench_cceh src/ycsb_bench.cpp src/CCEH_CoW.o -lpmemobj -ltbb -lpmem -lpthread -lgflags -DMULTITHREAD
 
 CCEH: src/CCEH.h src/CCEH.cpp
 	$(CXX) $(CFLAGS) -c -o src/CCEH.o src/CCEH.cpp -DINPLACE -lpmemobj -lpmem

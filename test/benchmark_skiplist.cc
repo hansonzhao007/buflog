@@ -18,8 +18,8 @@
 #include <thread>  // std::thread
 #include <vector>
 
-#ifdef PMEM_BUFLOG
-#include "Skiplist/inlineskiplist_buflog.h"
+#ifdef SPOTON
+#include "Skiplist/inlineskiplist_spoton.h"
 #else
 #include "Skiplist/inlineskiplist.h"
 #endif
@@ -624,7 +624,7 @@ public:
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
                 size_t* key = key_iterator.NextRef ();
-#ifndef PMEM_BUFLOG
+#ifndef SPOTON
                 char* buf = skiplist_->AllocateKey (sizeof (Key));
                 memcpy (buf, key, sizeof (Key));
                 skiplist_->InsertConcurrently (buf);
@@ -650,7 +650,7 @@ public:
         while (key_iterator.Valid ()) {
             size_t* key = key_iterator.NextRef ();
 
-#ifndef PMEM_BUFLOG
+#ifndef SPOTON
             char* buf = skiplist_->AllocateKey (sizeof (Key));
             memcpy (buf, key, sizeof (Key));
             auto time_start = NowNanos ();
@@ -687,7 +687,7 @@ public:
                 size_t* key = key_iterator.NextRef ();
 
                 if (thread->ycsb_gen.NextA () == kYCSB_Write) {
-#ifndef PMEM_BUFLOG
+#ifndef SPOTON
                     char* buf = skiplist_->AllocateKey (sizeof (Key));
                     memcpy (buf, key, sizeof (Key));
                     skiplist_->InsertConcurrently (buf);
@@ -727,7 +727,7 @@ public:
             for (; j < batch && key_iterator.Valid (); j++) {
                 size_t* key = key_iterator.NextRef ();
                 if (thread->ycsb_gen.NextB () == kYCSB_Write) {
-#ifndef PMEM_BUFLOG
+#ifndef SPOTON
                     char* buf = skiplist_->AllocateKey (sizeof (Key));
                     memcpy (buf, key, sizeof (Key));
                     skiplist_->InsertConcurrently (buf);
@@ -918,10 +918,16 @@ private:
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
 
-#ifdef PMEM_BUFLOG
-        fprintf (stdout, "BufNode:               true\n");
+#ifdef SPOTON
+        fprintf (stdout, "Spoton:                true\n");
 #else
-        fprintf (stdout, "BufNode:               false\n");
+        fprintf (stdout, "Spoton:                false\n");
+#endif
+
+#ifdef CONFIG_BUFNODE
+        fprintf (stdout, "Buffer:                true\n");
+#else
+        fprintf (stdout, "Buffer:                false\n");
 #endif
 
 #ifdef CONFIG_DRAM_INNER
@@ -929,6 +935,13 @@ private:
 #else
         fprintf (stdout, "DramInner:             false\n");
 #endif
+
+#ifdef CONFIG_OUT_OF_PLACE_MERGE
+        fprintf (stdout, "Out-Place-Merge:       true\n");
+#else
+        fprintf (stdout, "Out-Place-Merge:       false\n");
+#endif
+
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);
         fprintf (stdout, "Read:                  %lu \n", (uint64_t)FLAGS_read);
@@ -942,6 +955,11 @@ private:
 };
 
 int main (int argc, char* argv[]) {
+    for (int i = 0; i < argc; i++) {
+        printf ("%s ", argv[i]);
+    }
+    printf ("\n");
+
     ParseCommandLineFlags (&argc, &argv, true);
 
     int sds_write_value = 0;

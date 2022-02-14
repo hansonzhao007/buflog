@@ -18,7 +18,7 @@
 #include <thread>  // std::thread
 #include <vector>
 
-#include "CCEH_buflog.h"
+#include "CCEH_spoton.cc"
 #include "histogram.h"
 #include "test_util.h"
 using namespace util;
@@ -954,7 +954,32 @@ private:
     void PrintHeader () {
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
-        fprintf (stdout, "HashType:              %s\n", "CCEH buflog");
+        fprintf (stdout, "HashType:              %s\n", "CCEH spoton");
+
+#ifdef SPOTON
+        fprintf (stdout, "Spoton:                true\n");
+#else
+        fprintf (stdout, "Spoton:                false\n");
+#endif
+
+#ifdef CONFIG_BUFNODE
+        fprintf (stdout, "Buffer:                true\n");
+#else
+        fprintf (stdout, "Buffer:                false\n");
+#endif
+
+#ifdef CONFIG_DRAM_INNER
+        fprintf (stdout, "DramInner:             true\n");
+#else
+        fprintf (stdout, "DramInner:             false\n");
+#endif
+
+#ifdef CONFIG_OUT_OF_PLACE_MERGE
+        fprintf (stdout, "Out-Place-Merge:       true\n");
+#else
+        fprintf (stdout, "Out-Place-Merge:       false\n");
+#endif
+
         fprintf (stdout, "Init Capacity:         %lu\n", D_RW (hashtable_)->Capacity ());
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);
@@ -969,6 +994,11 @@ private:
 };
 
 int main (int argc, char* argv[]) {
+    for (int i = 0; i < argc; i++) {
+        printf ("%s ", argv[i]);
+    }
+    printf ("\n");
+
     ParseCommandLineFlags (&argc, &argv, true);
 
     int sds_write_value = 0;

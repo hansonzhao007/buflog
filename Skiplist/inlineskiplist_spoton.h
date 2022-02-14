@@ -59,8 +59,8 @@
 const size_t SKIPLIST_PMEM_SIZE = ((100LU << 30));
 
 // buflog
-#include "src/buflog.h"
 #include "src/logger.h"
+#include "src/spoton_skipbuf.h"
 
 // #define CONFIG_DRAM_INNER
 
@@ -517,13 +517,13 @@ struct InlineSkipList<Comparator>::Splice {
 template <class Comparator>
 struct InlineSkipList<Comparator>::BufNode {
 public:
-    buflog::BufVec buf;  // 64 byte
+    spoton::SkipBuf buf;  // 64 byte
 
     BufNode () {}
 
     BufNode (const BufNode& p1) {
-        buf.cur_ = p1.buf.cur_;
-        memcpy (buf.keys_, p1.buf.keys_, buf.cur_ * sizeof (size_t));
+        buf.count_ = p1.buf.count_;
+        memcpy (buf.keys_, p1.buf.keys_, buf.count_ * sizeof (size_t));
     }
 };
 
@@ -1738,7 +1738,7 @@ size_t InlineSkipList<Comparator>::Compact (Node* node /* bufnode */, Node* next
     int max_height = 0;
     // collect keys in buffer
     BufNode* bufnode = node->BufNode ();
-    for (int i = 0; i < buflog::BufVec::kValNum; i++) {
+    for (int i = 0; i < spoton::SkipBuf::kValNum; i++) {
         DEBUG ("collect on buf node %ld", bufnode->buf.keys_[i]);
         int node_h = RandomHeight ();
         keys.push_back ({bufnode->buf.keys_[i], node_h});

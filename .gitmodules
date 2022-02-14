@@ -2,3 +2,6 @@
 	path = lib/ralloc
 	url = https://github.com/urcs-sync/ralloc.git
 	commit = 6b9d7a1af75ba75232107bfaeb6a034799d5b182
+[submodule "lib/xxhash"]
+	path = lib/xxhash
+	url = https://github.com/Cyan4973/xxHash.git

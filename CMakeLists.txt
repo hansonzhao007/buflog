@@ -22,7 +22,7 @@ message(STATUS "build type: ${CMAKE_BUILD_TYPE}")
 
 
 # add liballoc.a library: https://github.com/urcs-sync/ralloc
-execute_process(  COMMAND make libralloc.a -j8
+execute_process(  COMMAND make libralloc.a -j
                   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/lib/ralloc/test
                   )
 link_directories(${PROJECT_SOURCE_DIR}/lib/ralloc/test)
@@ -31,6 +31,18 @@ include_directories(
   "${PROJECT_SOURCE_DIR}/lib/ralloc/src"
 )
 add_definitions(-DRALLOC)
+
+
+# add libxxhash.a 
+execute_process(  COMMAND make libxxhash.a -j
+                  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/lib/xxhash
+                  )
+link_directories(${PROJECT_SOURCE_DIR}/lib/xxhash)
+list(APPEND THIRDPARTY_LIBS xxhash)
+include_directories(
+  "${PROJECT_SOURCE_DIR}/lib/xxhash"
+)
+add_definitions(-DXXH_INLINE_ALL)
 
 # check existence of jemalloc
 include(CheckIncludeFile)
@@ -79,17 +91,18 @@ link_directories(/usr/lib)
 link_directories(/usr/local/lib)
 link_directories("${PROJECT_SOURCE_DIR}/lib/")
 
-list(APPEND THIRDPARTY_LIBS pmem vmem pmemobj util cceh)
+list(APPEND THIRDPARTY_LIBS pmem vmem pmemobj spoton)
 
 # all the binary will be in the build folder
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
 
 # This will enable your add_test() under tests folder.
 option(BUILD_TESTS "Build unit tests" ON)
 enable_testing()
 function(db_test test_file)
   get_filename_component(test_target_name "${test_file}" NAME_WE)
-  set (case_name test_${test_target_name})
+  set (case_name ${test_target_name})
   add_executable("${case_name}" "${test_file}")
   target_link_libraries("${case_name}" ${PROJECT_LINK_LIBS} ${THIRDPARTY_LIBS})  # boost_thread boost_system
   target_sources("${case_name}"
@@ -132,6 +145,8 @@ function(db_exe src_file)
   )
 endfunction(db_exe)
 
+
 # The add_subdirectory will add CMakeLists.txt under src and tests into your project.
-add_subdirectory(CCEH/src)
+# add_subdirectory(CCEH/src)
+add_subdirectory(src)
 add_subdirectory(test)

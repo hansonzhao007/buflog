@@ -10,8 +10,8 @@
 
    Please use at your own risk.
 */
-#ifndef __BTREE_PMEM_BUFLOG_H
-#define __BTREE_PMEM_BUFLOG_H
+#ifndef __BTREE_PMEM_SPOTON_H
+#define __BTREE_PMEM_SPOTON_H
 
 #include <math.h>
 #include <stdint.h>
@@ -35,8 +35,9 @@
 const size_t FASTFAIR_PMEM_SIZE = ((100LU << 30));
 const size_t FASTFAIR_PMEM_DATALOG_SIZE = ((16LU << 30));
 
-// buflog
-#include "src/buflog.h"
+#include "logger.h"
+#include "src/spoton_bufnode.h"
+#include "src/turbo_hash.h"
 
 // #define BUFLOG_DEBUG
 
@@ -86,7 +87,7 @@ inline void clflush (char* data, int len) {
     for (; ptr < data + len; ptr += CACHE_LINE_SIZE) {
         _mm_clwb ((void*)ptr);
     }
-    mfence ();
+    _mm_sfence ();
 }
 
 class page;
@@ -102,11 +103,13 @@ private:
     pptr<char> datalog_addr_;
 
 public:
-    inline static buflog::linkedredolog::DataLog datalog_;
+    // inline static buflog::linkedredolog::DataLog datalog_;
     inline static turbo::unordered_map<size_t, char*>
         bufnode_table_;  // dram table to record bufnode
 
-    ~btree () { btree::datalog_.CommitTail (true); }
+    ~btree () {
+        //  btree::datalog_.CommitTail (true);
+    }
 
     friend btree* CreateBtree (void);
     friend btree* RecoverBtree (void);
@@ -398,7 +401,7 @@ public:
      * @param bufnode
      * @return page*
      */
-    inline page* merge_page_buffer (int num_entreis, buflog::SortedBufNode* bufnode) {
+    inline page* merge_page_buffer (int num_entreis, spoton::SortedBufNode_t* bufnode) {
         // step 1. Create new leafnode page
         page* buf = reinterpret_cast<page*> (RP_malloc (sizeof (page)));
         page* new_leafnode = new (buf) page (hdr.level, false);
@@ -595,7 +598,7 @@ public:
     // Insert a new key - FAST and FAIR
     page* store (page* parent, int pi, btree* bt, char* left, entry_key_t key, char* right,
                  bool flush, bool with_lock, page* invalid_sibling = nullptr,
-                 buflog::SortedBufNode* bufnode = nullptr) {
+                 spoton::SortedBufNode_t* bufnode = nullptr) {
         if (with_lock) {
             hdr.mtx.lock ();  // Lock the write lock
         }
@@ -663,7 +666,7 @@ public:
                 // bufnode_table_
                 bufnode->Reset ();
                 BUFLOG_INFO ("Clear leafnode 0x%lx 's bufnode 0x%lx", this, bufnode);
-                bufnode->Put (key, right);
+                bufnode->Insert (key, right);
                 BUFLOG_INFO ("Create leafnode 0x%lx bufnode 0x%lx mapping. %s", new_leafnode,
                              bufnode, bufnode->ToStringValid ().c_str ());
                 btree::bufnode_table_.Delete ((size_t (this)));
@@ -682,7 +685,7 @@ public:
                     iter++;
                 }
                 bufnode->Reset ();
-                bufnode->Put (key, right);
+                bufnode->Insert (key, right);
 //     ------------------ in-place merge --------------------- }}}
 #endif
             } else {
@@ -802,7 +805,7 @@ public:
                 }
 
                 // !buflog: create a bufnode for leaf page
-                buflog::SortedBufNode* new_bufnode = new buflog::SortedBufNode ();
+                spoton::SortedBufNode_t* new_bufnode = new spoton::SortedBufNode_t ();
                 new_bufnode->highkey_ = hdr.hkey;
                 BUFLOG_INFO ("Update highkey %ld for new bufnode 0x%lx", hdr.hkey, new_bufnode);
                 new_bufnode->parentkey_ = split_key;
@@ -1362,7 +1365,7 @@ btree* CreateBtree (void) {
     btree_root->root_pmem_ = root;
     btree_root->left_most_leafnode_ = root;
     btree_root->datalog_addr_ = reinterpret_cast<char*> (RP_malloc (FASTFAIR_PMEM_DATALOG_SIZE));
-    btree::datalog_.Create (btree_root->datalog_addr_, FASTFAIR_PMEM_DATALOG_SIZE);
+    // btree::datalog_.Create (btree_root->datalog_addr_, FASTFAIR_PMEM_DATALOG_SIZE);
     return btree_root;
 }
 
@@ -1386,7 +1389,7 @@ btree* RecoverBtree (void) {
 
     btree_root = RP_get_root<btree> (0);
     btree_root->root = btree_root->root_pmem_;
-    btree::datalog_.Open (btree_root->datalog_addr_);
+    // btree::datalog_.Open (btree_root->datalog_addr_);
     return btree_root;
 }
 
@@ -1437,12 +1440,12 @@ char* btree::btree_search (entry_key_t key) {
         }
     }
 
-    buflog::SortedBufNode* bufnode = nullptr;
+    spoton::SortedBufNode_t* bufnode = nullptr;
 #ifdef CONFIG_BUFNODE
     // !buflog: check the bufnode first if we can find one.
     auto iter = btree::bufnode_table_.Find (size_t (p));
     if (iter != nullptr) {
-        bufnode = reinterpret_cast<buflog::SortedBufNode*> (iter->second ());
+        bufnode = reinterpret_cast<spoton::SortedBufNode_t*> (iter->second ());
         char* ret;
         bool res = bufnode->Get (key, ret);
         if (res == true) {
@@ -1492,7 +1495,7 @@ void btree::btree_insert (entry_key_t key, char* right) {  // need to be string
     // find the leaf node. Normally p will never be nullptr
     page* parent = nullptr;
     int pi = -2;
-    buflog::SortedBufNode* bufnode = nullptr;
+    spoton::SortedBufNode_t* bufnode = nullptr;
 
     // find the leaf node
     while (p->hdr.level > 1) {
@@ -1529,7 +1532,7 @@ void btree::btree_insert (entry_key_t key, char* right) {  // need to be string
         auto iter = btree::bufnode_table_.Find (size_t (p));
         int64_t highkey;
         if (iter != nullptr) {
-            bufnode = reinterpret_cast<buflog::SortedBufNode*> (iter->second ());
+            bufnode = reinterpret_cast<spoton::SortedBufNode_t*> (iter->second ());
             bufnode->Lock ();
             highkey = bufnode->highkey_;
             if (highkey > 0 && key >= highkey) {
@@ -1541,7 +1544,7 @@ void btree::btree_insert (entry_key_t key, char* right) {  // need to be string
                 p = p->hdr.GetSiblingPtr ();
                 goto retry_bufinsert;
             } else {
-                bool res = bufnode->Put (key, right);
+                bool res = bufnode->Insert (key, right);
                 if (res) {
                     // successfully insert to bufnode
                     BUFLOG_INFO (
@@ -1721,7 +1724,7 @@ void btree::printAll (int level = 0) {
             sibling->print ();
             auto iter = btree::bufnode_table_.Find (size_t (sibling));
             if (iter != nullptr) {
-                auto bufnode = reinterpret_cast<buflog::SortedBufNode*> (iter->second ());
+                auto bufnode = reinterpret_cast<spoton::SortedBufNode_t*> (iter->second ());
                 printf ("bufnode 0x%lx, %s\n", bufnode, bufnode->ToString ().c_str ());
                 bufnode->Print ();
             }

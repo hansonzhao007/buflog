@@ -11,7 +11,7 @@
 #include <set>
 #include <unordered_set>
 
-#include "Skiplist/inlineskiplist_buflog.h"
+#include "Skiplist/inlineskiplist_spoton.h"
 #include "Skiplist/port_posix.h"
 #include "gtest/gtest.h"
 

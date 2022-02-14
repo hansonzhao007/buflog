@@ -1,5 +1,5 @@
-#ifndef CCEH_H_
-#define CCEH_H_
+#ifndef CCEH_SPOTON_H_
+#define CCEH_SPOTON_H_
 
 #include <libpmemobj.h>
 #include <pthread.h>
@@ -9,10 +9,14 @@
 #include <cstring>
 #include <vector>
 
-#include "../../src/buflog.h"
+#include "spoton_hashbuf.h"
 #include "util.h"
 
 #define TOID_ARRAY(x) TOID (x)
+
+// #define INPLACE
+// #define WITHOUT_FLUSH
+// #define CONFIG_OUT_OF_PLACE_MERGE
 
 typedef size_t Key_t;
 typedef const char* Value_t;
@@ -45,7 +49,7 @@ constexpr size_t kNumPairPerCacheLine = 4;
 constexpr size_t kNumCacheLine = 8;
 constexpr size_t kCuckooThreshold = 16;
 
-using WriteBuffer = buflog::WriteBuffer<kWriteBufferSize / 256>;
+using WriteBuffer = spoton::HashBuffer<kWriteBufferSize / 256>;
 // constexpr size_t kCuckooThreshold = 32;
 
 struct Segment {
@@ -162,14 +166,14 @@ struct Directory {
         depth = kDefaultDepth;
         capacity = pow (2, depth);
         sema = 0;
-        INFO ("Directory capacity: %lu. depth %lu\n", capacity, depth);
+        // INFO ("Directory capacity: %lu. depth %lu\n", capacity, depth);
         printf ("Directory capacity: %lu. depth %lu\n", capacity, depth);
     }
 
     void initDirectory (size_t _depth) {
         depth = _depth;
         capacity = pow (2, _depth);
-        INFO ("Directory capacity: %lu. depth %lu\n", capacity, depth);
+        // INFO ("Directory capacity: %lu. depth %lu\n", capacity, depth);
         printf ("Directory capacity: %lu. depth %lu\n", capacity, depth);
         sema = 0;
     }

@@ -18,7 +18,7 @@
 #include <thread>  // std::thread
 #include <vector>
 
-#include "FAST_FAIR/btree_pmem_buflog.h"
+#include "FAST_FAIR/btree_spoton.h"
 #include "histogram.h"
 #include "test_util.h"
 
@@ -931,16 +931,28 @@ private:
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
 
-#ifdef CONFIG_BUFNODE
-        fprintf (stdout, "BufNode:               true\n");
+#ifdef SPOTON
+        fprintf (stdout, "Spoton:                true\n");
 #else
-        fprintf (stdout, "BufNode:               false\n");
+        fprintf (stdout, "Spoton:                false\n");
+#endif
+
+#ifdef CONFIG_BUFNODE
+        fprintf (stdout, "Buffer:                true\n");
+#else
+        fprintf (stdout, "Buffer:                false\n");
 #endif
 
 #ifdef CONFIG_DRAM_INNER
         fprintf (stdout, "DramInner:             true\n");
 #else
         fprintf (stdout, "DramInner:             false\n");
+#endif
+
+#ifdef CONFIG_OUT_OF_PLACE_MERGE
+        fprintf (stdout, "Out-Place-Merge:       true\n");
+#else
+        fprintf (stdout, "Out-Place-Merge:       false\n");
 #endif
 
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
@@ -957,6 +969,11 @@ private:
 };
 
 int main (int argc, char* argv[]) {
+    for (int i = 0; i < argc; i++) {
+        printf ("%s ", argv[i]);
+    }
+    printf ("\n");
+
     ParseCommandLineFlags (&argc, &argv, true);
 
     Benchmark benchmark;

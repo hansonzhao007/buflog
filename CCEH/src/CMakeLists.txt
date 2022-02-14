@@ -1,7 +1,7 @@
 # CMAKELISTS.TXT UNDER cceh
 set(CCEH_SRCS
-    "CCEH_buflog.cpp"
-    "CCEH_buflog.h"
+    "CCEH_spoton.cpp"
+    "CCEH_spoton.h"
 )
 
 # Declare the library

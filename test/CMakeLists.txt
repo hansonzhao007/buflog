@@ -1,12 +1,17 @@
-db_test(buflog_test)
-db_test(ralloc_test)
-db_test(fastfair_test)
-db_test(inlineskiplist_test)
+db_test(test_ralloc)
+db_test(test_fastfair)
+db_test(test_skiplist)
 
-db_exe(cceh_bench bench_cceh_buflog BUFLOG)
+# CONFIG_BUFNODE CONFIG_DRAM_INNER CONFIG_OUT_OF_PLACE_MERGE
 
-db_exe(fastfair_bench bench_fastfair_pmem PMEM)
-db_exe(fastfair_bench bench_fastfair_buflog PMEM_BUFLOG CONFIG_BUFNODE CONFIG_DRAM_INNER)
+db_exe(benchmark_cceh bench_cceh_spoton SPOTON CONFIG_BUFNODE CONFIG_DRAM_INNER CONFIG_OUT_OF_PLACE_MERGE)
 
-db_exe(inlineskiplist_bench bench_skiplist_pmem PMEM)
-db_exe(inlineskiplist_bench bench_skiplist_buflog PMEM_BUFLOG CONFIG_BUFNODE CONFIG_DRAM_INNER)
+db_exe(benchmark_fastfair bench_fastfair PMEM)
+db_exe(benchmark_fastfair bench_fastfair_spoton SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE)
+
+db_exe(benchmark_skiplist bench_skiplist PMEM)
+db_exe(benchmark_skiplist bench_skiplist_spoton SPOTON CONFIG_BUFNODE CONFIG_DRAM_INNER CONFIG_OUT_OF_PLACE_MERGE)
+
+db_test(test_spoton_log)
+db_test(test_spoton_bufnode)
+db_test(test_spoton_hashbuf)
