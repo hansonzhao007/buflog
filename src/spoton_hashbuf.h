@@ -12,21 +12,29 @@ namespace spoton {
  * @brief Write buffer for Hash Table
  *
  */
-template <size_t NUM>
+
 class HashBuffer {
-    static_assert (__builtin_popcount (NUM) == 1, "NUM should be power of 2");
-    static constexpr size_t kNodeNumMask = NUM - 1;
-    static constexpr size_t kNodeNum = NUM;
-    static constexpr size_t kProbeLen = NUM / 2 - 1;
+    // static_assert (__builtin_popcount (NUM) == 1, "NUM should be power of 2");
+    // static constexpr size_t kNodeNumMask = NUM - 1;
+    // static constexpr size_t kNodeNum = NUM;
+    // static constexpr size_t kProbeLen = NUM / 2 - 1;
 
 public:
-    SortedBufNode_t nodes_[NUM];
+    std::vector<SortedBufNode_t> nodes_;
     SpinLock lock_;
     size_t local_depth;
 
+    size_t kNodeNum;
+    size_t kProbeLen;
+
 public:
     HashBuffer () { local_depth = 0; }
-    HashBuffer (size_t d) { local_depth = d; }
+    HashBuffer (size_t d, int num) : nodes_ (num) {
+        local_depth = d;
+
+        kNodeNum = num;
+        kProbeLen = num / 2 - 1;
+    }
 
     bool Put (int64_t key, char* val);
     bool Get (int64_t key, char*& val);
@@ -74,8 +82,7 @@ public:
     Iterator Begin () { return Iterator (this); }
 };
 
-template <size_t NUM>
-bool HashBuffer<NUM>::Put (int64_t key, char* val) {
+bool HashBuffer::Put (int64_t key, char* val) {
     size_t hash = Hasher::hash_int (key);
     uint8_t tag = hash & 0xFF;
 
@@ -84,7 +91,7 @@ bool HashBuffer<NUM>::Put (int64_t key, char* val) {
     int slot_to_insert = -1;
 
     for (size_t p = 0; p < kProbeLen; ++p) {
-        int idx = (hash + p) & kNodeNumMask;
+        int idx = (hash + p) % kNodeNum;
         SortedBufNode_t& bucket = nodes_[idx];
 
         // step 1. check if this bucket already has this key
@@ -128,12 +135,11 @@ put_probe_end:
     return true;
 }
 
-template <size_t NUM>
-bool HashBuffer<NUM>::Get (int64_t key, char*& val) {
+bool HashBuffer::Get (int64_t key, char*& val) {
     size_t hash = Hasher::hash_int (key);
     uint8_t tag = hash & 0xFF;
     for (size_t p = 0; p < kProbeLen; ++p) {
-        int idx = (hash + p) & kNodeNumMask;
+        int idx = (hash + p) % kNodeNum;
         SortedBufNode_t& bucket = nodes_[idx];
 
         for (int i : bucket.MatchBitSet (tag)) {
@@ -152,12 +158,11 @@ bool HashBuffer<NUM>::Get (int64_t key, char*& val) {
     return false;
 }
 
-template <size_t NUM>
-bool HashBuffer<NUM>::Delete (int64_t key) {
+bool HashBuffer::Delete (int64_t key) {
     size_t hash = Hasher::hash_int (key);
     size_t tag = hash & 0xFF;
     for (size_t p = 0; p < kProbeLen; ++p) {
-        int idx = (hash + p) & kNodeNumMask;
+        int idx = (hash + p) % kNodeNum;
         SortedBufNode_t& bucket = nodes_[idx];
 
         for (int i : bucket.MatchBitSet (tag)) {
@@ -177,8 +182,7 @@ bool HashBuffer<NUM>::Delete (int64_t key) {
     return false;
 }
 
-template <size_t NUM>
-void HashBuffer<NUM>::Reset () {
+void HashBuffer::Reset () {
     for (size_t i = 0; i < kNodeNum; i++) {
         nodes_[i].Reset ();
     }

@@ -45,7 +45,7 @@ constexpr size_t kNumPairPerCacheLine = 4;
 constexpr size_t kNumCacheLine = 8;
 constexpr size_t kCuckooThreshold = 16;
 
-using WriteBuffer = spoton::HashBuffer<kWriteBufferSize / 256>;
+using WriteBuffer = spoton::HashBuffer;
 // constexpr size_t kCuckooThreshold = 32;
 
 struct Segment {
@@ -60,7 +60,6 @@ struct Segment {
         }
         local_depth = 0;
         sema = 0;
-        bufnode_ = new WriteBuffer ();
     }
 
     void initSegment (size_t depth) {
@@ -69,7 +68,6 @@ struct Segment {
         }
         local_depth = depth;
         sema = 0;
-        bufnode_ = new WriteBuffer (depth);
     }
 
     bool suspend (void) {
@@ -114,13 +112,14 @@ struct Segment {
     Pair bucket[kNumSlot];
     int64_t sema = 0;
     size_t local_depth;
-    WriteBuffer* bufnode_;
 };
 
 struct Directory {
     static const size_t kDefaultDepth = 10;
 
     TOID_ARRAY (TOID (struct Segment)) segment;
+    WriteBuffer** bufnodes;
+
     int64_t sema = 0;
     size_t capacity;
     size_t depth;

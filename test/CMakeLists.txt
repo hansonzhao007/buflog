@@ -18,7 +18,7 @@ db_exe(benchmark_skiplist bench_skiplist_spoton_buf_otp_di SPOTON CONFIG_BUFNODE
 
 db_test(test_spoton_log)
 db_test(test_spoton_bufnode)
-db_test(test_spoton_hashbuf)
+# db_test(test_spoton_hashbuf)
 
 
 db_exe(benchmark_turbo bench_turbo)
