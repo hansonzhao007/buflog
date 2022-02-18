@@ -18,8 +18,8 @@
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
 //
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 //
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -35,6 +35,7 @@
 #include <error.h>
 #include <immintrin.h>
 #include <jemalloc/jemalloc.h>
+#include <mmintrin.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -59,40 +60,25 @@
 #include <utility>
 #include <vector>
 
-// ------------ Following is for debug -----------
-// #define TURBO_ENABLE_LOGGING
-// #define TURBO_DEBUG_OUT
-// #define TURBO_PRINT_PROBE_DISTANCE
+// #define PIN_KEY_TO_THREAD
 
 // Linear probing setting
 static constexpr int kTurboCellCountLimit = 32768;
-static constexpr int kTurboMaxProbeLen = 16;
+static constexpr int kTurboMaxProbeLen = 15;
 static constexpr int kTurboProbeStep = 1;
 
-#define TURBO_LIKELY(x) (__builtin_expect (false || (x), true))
-#define TURBO_UNLIKELY(x) (__builtin_expect (x, 0))
+#define TURBO_LIKELY(x) (__builtin_expect (!!(x), 1))
+#define TURBO_UNLIKELY(x) (__builtin_expect (!!(x), 0))
 
 #define TURBO_BARRIER() asm volatile("" : : : "memory") /* Compile read-write barrier */
-#define TURBO_CPU_RELAX()  \
-    asm volatile("pause\n" \
-                 :         \
-                 :         \
-                 : "memory") /* Pause instruction to prevent excess processor bus usage */
+#define TURBO_CPU_RELAX()                                                     \
+    asm volatile("pause\n"                                                    \
+                 :                                                            \
+                 :                                                            \
+                 : "memory") /* Pause instruction to prevent excess processor \
+                                bus usage */
 
 #define TURBO_SPINLOCK_FREE ((0))
-
-#ifndef MAP_HUGETLB
-#define MAP_HUGETLB 0x40000 /* arch specific */
-#endif
-#define TURBO_HUGEPAGE_SIZE (2UL * 1024 * 1024)
-#define TURBO_HUGE_PROTECTION (PROT_READ | PROT_WRITE)
-#ifdef __ia64__ /* Only ia64 requires this */
-#define TURBO_HUGE_ADDR (void*)(0x8000000000000000UL)
-#define TURBO_HUGE_FLAGS (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_FIXED)
-#else
-#define TURBO_HUGE_ADDR (void*)(0x0UL)
-#define TURBO_HUGE_FLAGS (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB)
-#endif
 
 inline void TURBO_COMPILER_FENCE () { asm volatile("" : : : "memory"); /* Compiler fence. */ }
 
@@ -135,6 +121,8 @@ public:
     BitSet () : bits_ (0) {}
 
     explicit BitSet (uint32_t bits) : bits_ (bits) {}
+
+    BitSet (const BitSet& b) = default;
 
     inline int validCount (void) { return __builtin_popcount (bits_); }
 
@@ -330,137 +318,46 @@ public:
 
 };  // end fo class Hasher
 
-/** AtomicBitOps
- *  @note: provide atomic bit test-and-set, test-and-reset
- */
-class AtomicBitOps {
-public:
-    /** https://stackoverflow.com/questions/30467638/cheapest-least-intrusive-way-to-atomically-update-a-bit
-     * \brief Atomically tests and sets a bit (INTEL only)
-     * \details Sets bit \p bit of *\p ptr and returns its previous value.
-     * The function is atomic and acts as a read-write memory barrier.
-     * \param[in] ptr a pointer to an unsigned integer
-     * \param[in] bit index of the bit to set in *\p ptr
-     * \return the previous value of bit \p bit
-     */
-    static inline char BitTestAndSet (volatile unsigned int* ptr, unsigned int bit) {
-        char out;
-#if defined(__x86_64)
-        __asm__ __volatile__(
-            "lock; bts %2,%1\n"  // set carry flag if bit %2 (bit) of %1 (ptr) is set
-                                 //   then set bit %2 of %1
-            "sbb %0,%0\n"        // set %0 (out) if carry flag is set
-            : "=r"(out), "=m"(*ptr)
-            : "Ir"(bit)
-            : "memory");
-#else
-        __asm__ __volatile__(
-            "lock; bts %2,%1\n"  // set carry flag if bit %2 (bit) of %1 (ptr) is set
-                                 //   then set bit %2 of %1
-            "sbb %0,%0\n"        // set %0 (out) if carry flag is set
-            : "=q"(out), "=m"(*ptr)
-            : "Ir"(bit)
-            : "memory");
-#endif
-        return out;
-    }
+#define CAS(_p, _u, _v) \
+    (__atomic_compare_exchange_n (_p, _u, _v, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
 
-    /**
-     * \brief Atomically tests and resets a bit (INTEL only)
-     * \details Resets bit \p bit of *\p ptr and returns its previous value.
-     * The function is atomic and acts as a read-write memory barrier
-     * \param[in] ptr a pointer to an unsigned integer
-     * \param[in] bit index of the bit to reset in \p ptr
-     * \return the previous value of bit \p bit
-     */
-    static inline char BitTestAndReset (volatile unsigned int* ptr, unsigned int bit) {
-        char out;
-#if defined(__x86_64)
-        __asm__ __volatile__(
-            "lock; btr %2,%1\n"  // set carry flag if bit %2 (bit) of %1 (ptr) is set
-                                 //   then reset bit %2 of %1
-            "sbb %0,%0\n"        // set %0 (out) if carry flag is set
-            : "=r"(out), "=m"(*ptr)
-            : "Ir"(bit)
-            : "memory");
-#else
-        __asm__ __volatile__(
-            "lock; btr %2,%1\n"  // set carry flag if bit %2 (bit) of %1 (ptr) is set
-                                 //   then reset bit %2 of %1
-            "sbb %0,%0\n"        // set %0 (out) if carry flag is set
-            : "=q"(out), "=m"(*ptr)
-            : "Ir"(bit)
-            : "memory");
-#endif
-        return out;
-    }
-
-};  // end of class AtomicBitOps
-
-// #define CAS(_p, _u, _v)                                             \
-//   (__atomic_compare_exchange_n(_p, _u, _v, false, __ATOMIC_ACQUIRE, \
-//                                __ATOMIC_ACQUIRE))
-
-// static inline void turbo_bit_spin_lock(uint32_t *lock, int bit_pos)
-// {
-//     uint32_t old_value = 0;
-//     uint32_t new_value = 0;
-//     do {
-//         while (true)  {
-//             old_value = __atomic_load_n(lock, __ATOMIC_ACQUIRE);
-//             if (!(old_value & (1 << bit_pos))) {
-//                 // not lock yet
-//                 break;
-//             }
-//             TURBO_CPU_RELAX();
-//         }
-//         new_value = old_value | (1 << bit_pos);
-//     } while (!CAS(lock, &old_value, new_value));
-// }
-
-// // return true if try lock succ
-// static inline bool turbo_bit_spin_try_lock(uint32_t *lock, int bit_pos) {
-//     uint32_t v = __atomic_load_n(lock, __ATOMIC_ACQUIRE);
-//     if (v & (1 << bit_pos)) {
-//         return false;
-//     }
-//     auto old_value = v;
-//     auto new_value = v | (1 << bit_pos);
-//     return CAS(lock, &old_value, new_value);
-// }
-
-// static inline void turbo_bit_spin_unlock(uint32_t *lock, int bit_pos)
-// {
-//     uint32_t v = *lock;
-//     v &= ~(1 << bit_pos);
-//     __atomic_store_n(lock, v, __ATOMIC_RELEASE);
-// }
-
-// // If locked, return true
-// static inline bool turbo_lockbusy(uint32_t *lock, int bit_pos) {
-//     uint32_t lock_value = __atomic_load_n(lock, __ATOMIC_ACQUIRE);
-//     return lock_value & (1 << bit_pos);
-// }
-
-static inline bool turbo_bit_spin_try_lock (uint32_t* lock, int bit_pos) {
-    return AtomicBitOps::BitTestAndSet (lock, bit_pos) == TURBO_SPINLOCK_FREE;
+static inline void turbo_bit_spin_lock (uint32_t* lock, int bit_pos) {
+    uint32_t old_value = 0;
+    uint32_t new_value = 0;
+    do {
+        while (true) {
+            old_value = __atomic_load_n (lock, __ATOMIC_ACQUIRE);
+            if (!(old_value & (1 << bit_pos))) {
+                // not lock yet
+                break;
+            }
+            TURBO_CPU_RELAX ();
+        }
+        new_value = old_value | (1 << bit_pos);
+    } while (!CAS (lock, &old_value, new_value));
 }
+
+// return true if try lock succ
+static inline bool turbo_bit_spin_try_lock (uint32_t* lock, int bit_pos) {
+    uint32_t v = __atomic_load_n (lock, __ATOMIC_ACQUIRE);
+    if (v & (1 << bit_pos)) {
+        return false;
+    }
+    auto old_value = v;
+    auto new_value = v | (1 << bit_pos);
+    return CAS (lock, &old_value, new_value);
+}
+
+static inline void turbo_bit_spin_unlock (uint32_t* lock, int bit_pos) {
+    uint32_t v = *lock;
+    v &= ~(1 << bit_pos);
+    __atomic_store_n (lock, v, __ATOMIC_RELEASE);
+}
+
+// If locked, return true
 static inline bool turbo_lockbusy (uint32_t* lock, int bit_pos) {
     uint32_t lock_value = __atomic_load_n (lock, __ATOMIC_ACQUIRE);
     return lock_value & (1 << bit_pos);
-}
-static inline void turbo_bit_spin_lock (uint32_t* lock, int bit_pos) {
-    while (1) {
-        // test & set return 0 if success
-        if (AtomicBitOps::BitTestAndSet (lock, bit_pos) == TURBO_SPINLOCK_FREE) {
-            return;
-        }
-        while (turbo_lockbusy (lock, bit_pos)) TURBO_CPU_RELAX ();
-    }
-}
-static inline void turbo_bit_spin_unlock (uint32_t* lock, int bit_pos) {
-    TURBO_BARRIER ();
-    *lock &= ~(1 << bit_pos);
 }
 
 /** SpinLockScope
@@ -522,8 +419,8 @@ public:
 
 };  // namespace util
 
-// A thin wrapper around std::hash, performing an additional simple mixing step of the result.
-// from https://github.com/martinus/robin-hood-hashing
+// A thin wrapper around std::hash, performing an additional simple mixing step
+// of the result. from https://github.com/martinus/robin-hood-hashing
 template <typename T>
 struct hash : public std::hash<T> {
     size_t operator() (T const& obj) const
@@ -584,8 +481,8 @@ struct identity_hash {
 
 namespace detail {
 
-// using wrapper classes for hash and key_equal prevents the diamond problem when the same type is
-// used. see https://stackoverflow.com/a/28771920/48181
+// using wrapper classes for hash and key_equal prevents the diamond problem
+// when the same type is used. see https://stackoverflow.com/a/28771920/48181
 // from robinhood hash. https://github.com/martinus/robin-hood-hashing
 template <typename T>
 struct WrapHash : public T {
@@ -608,13 +505,12 @@ struct WrapKeyEqual : public T {
  *           |    ...   |    ...   |     |          |
  *
  */
-template <typename Key, typename T, typename Hash, typename KeyEqual,
-          int kCellCountLimit = kTurboCellCountLimit>
+template <typename Key, typename T, typename Hash, typename KeyEqual, int kCellCountLimit = 32768>
 class TurboHashTable : public WrapHash<Hash>, public WrapKeyEqual<KeyEqual> {
 public:
     static constexpr bool is_key_flat = std::is_same<Key, std::string>::value == false;
     static constexpr bool is_value_flat = std::is_same<T, std::string>::value == false;
-    // Internal transformation for std::string
+
     using key_type = Key;
     using mapped_type = T;
     using size_type = size_t;
@@ -700,7 +596,8 @@ public:
             memcpy (addr + sizeof (size_t), t1.data (), t1.size ());
         }
     };
-    // When T1 is std::string, 'Decode' return util::Slice, which is the reference of real value.
+    // When T1 is std::string, 'Decode' return util::Slice, which is the reference
+    // of real value.
     template <typename T1>
     struct DecodeInRecord1<false, T1> {
         static inline util::Slice Decode (char* addr) {
@@ -857,30 +754,30 @@ public:
     /** Case 4: T1 is std::string, T2 is std::string
      *  * record memory layout:
      *         |  len1  |  len2  | buffer1 | bufer2 |
-     *         | size_t | size_t |         |
+     *         |   u32  |  u32   |         |
      *         |                 |
      *     addr start here     offset
      */
     template <typename T1, typename T2>
     struct Record2Size<false, false, T1, T2> {
         static inline size_t Size (char* addr) {
-            size_t len1 = *reinterpret_cast<size_t*> (addr);
-            size_t len2 = *reinterpret_cast<size_t*> (addr + sizeof (size_t));
-            return sizeof (size_t) + sizeof (size_t) + len1 + len2;
+            uint32_t len1 = *reinterpret_cast<uint32_t*> (addr);
+            uint32_t len2 = *reinterpret_cast<uint32_t*> (addr + sizeof (uint32_t));
+            return sizeof (uint32_t) + sizeof (uint32_t) + len1 + len2;
         }
     };
     template <typename T1, typename T2>
     struct Record2Format<false, false, T1, T2> {
         static inline size_t Length (const T1& t1, const T2& t2) {
-            return sizeof (size_t) + sizeof (size_t) + t1.size () + t2.size ();
+            return sizeof (uint32_t) + sizeof (uint32_t) + t1.size () + t2.size ();
         }
     };
     template <typename T1, typename T2>
     struct EncodeToRecord2<false, false, T1, T2> {
         static inline void Encode (const T1& t1, const T2& t2, char* addr) {
-            static constexpr size_t offset = sizeof (size_t) + sizeof (size_t);
-            *reinterpret_cast<size_t*> (addr) = t1.size ();
-            *reinterpret_cast<size_t*> (addr + sizeof (size_t)) = t2.size ();
+            static constexpr uint32_t offset = sizeof (uint32_t) + sizeof (uint32_t);
+            *reinterpret_cast<uint32_t*> (addr) = t1.size ();
+            *reinterpret_cast<uint32_t*> (addr + sizeof (uint32_t)) = t2.size ();
             memcpy (addr + offset, t1.data (), t1.size ());
             if (t2.size () != 0) memcpy (addr + offset + t1.size (), t2.data (), t2.size ());
         }
@@ -888,20 +785,20 @@ public:
     template <typename T1, typename T2>
     struct DecodeInRecord2<false, false, true /* IsFirst*/, T1, T2> {
         static inline util::Slice Decode (char* addr) {
-            size_t len1 = *reinterpret_cast<size_t*> (addr);
-            return util::Slice (addr + sizeof (size_t) + sizeof (size_t), len1);
+            uint32_t len1 = *reinterpret_cast<uint32_t*> (addr);
+            return util::Slice (addr + sizeof (uint32_t) + sizeof (uint32_t), len1);
         }
     };
     template <typename T1, typename T2>
     struct DecodeInRecord2<false, false, false /* IsFirst*/, T1, T2> {
         static inline util::Slice Decode (char* addr) {
-            size_t len1 = *reinterpret_cast<size_t*> (addr);
-            size_t len2 = *reinterpret_cast<size_t*> (addr + sizeof (size_t));
-            return util::Slice (addr + sizeof (size_t) + sizeof (size_t) + len1, len2);
+            uint32_t len1 = *reinterpret_cast<uint32_t*> (addr);
+            uint32_t len2 = *reinterpret_cast<uint32_t*> (addr + sizeof (uint32_t));
+            return util::Slice (addr + sizeof (uint32_t) + sizeof (uint32_t) + len1, len2);
         }
     };
 
-    using H2Tag = uint16_t;
+    using H2Tag = uint8_t;
     using H1Tag = typename std::conditional<is_key_flat, Key, uint64_t>::type;
     using Entry = typename std::conditional<is_key_flat && is_value_flat, T, char*>::type;
 
@@ -920,7 +817,8 @@ public:
 #pragma GCC diagnostic pop
 
     /** PartialHash
-     *  @note: a 64-bit hash is used to locate the cell location, and provide hash-tag.
+     *  @note: a 64-bit hash is used to locate the cell location, and provide
+     * hash-tag.
      *  @format:
      *  | MSB    - - - - - - - - - - - - - - - - - - LSB |
      *  |     32 bit     |   16 bit  |  8 bit  |  8 bit  |
@@ -942,29 +840,37 @@ public:
      *  @node:
      */
     struct HashSlot {
-        Entry entry;
-        char _[8 - sizeof (Entry)];
-        H1Tag H1;
-        char __[8 - sizeof (H1Tag)];
+        union {
+            struct {
+                H1Tag H1;
+                Entry entry;
+            };
+            uint64_t _[2];
+        };
     };
+
+    template <typename T1, bool key_flat, bool value_flat>
+    struct SlotRecord : public HashSlot {};
+
+    using SlotType = SlotRecord<Key, is_key_flat, is_value_flat>;
 
     /** CellMeta256V2
      *  @note: Hash cell whose size is 256 byte. There are 14 slots in the cell.
      *  @format:
-     *  | ----------------------- meta ------------------------| ----- slots ----- |
-     *  | 4 byte bitmap | 28 byte: two byte hash for each slot | 16 byte * 14 slot |
-     *  | Bitmap Zone   |    Tag Zone                          |    Slot Zone      |
+     *  | ------------------- 32 Byte meta --------------------| ----- Slots ----- |
+     *  |    4 Bytes   |     4 Bytes     | 8 Bytes  | 16 Bytes |   16 Bytes * 14   |
+     *  |  Bitmap Zone | Sequence Number | None     | Hash Tag |
      *
      *  |- Bitmap Zone:
-     *            0 bit: used as a bitlock
-     *            1 bit: not in use
-     *      2  - 15 bit: indicate which slot is empty, 0: empty or deleted, 1: occupied
-     *      16 - 31 bit: delete_bitmap. 1: deleted
+     *      2  - 15 bit: indicate which slot is valid or not
+     *      18 - 31 bit: delete_bitmap. 1: deleted
      *
-     *  |- two byte hash:
-     *      16 bit tag (H2) for the slot
+     *  |- Sequence Number: increase for each write
      *
-     *  |- slot:
+     *  |- Hash Tag
+     *      One byte tag (H2) for the slot
+     *
+     *  |- Slots:
      *      0  -  7 byte: H1 tag or real key for flat_key
      *      8  - 15 byte: pointer to data or read value for flat_value
      */
@@ -973,40 +879,84 @@ public:
         static constexpr uint16_t BitMapMask = 0xFFFC;
         static constexpr int CellSizeLeftShift = 8;
         static constexpr int SlotSizeLeftShift = 4;
+        static constexpr int kDeleteBitmapOffset = 16;
+
+        struct Version {
+            explicit Version (uint64_t data) : data_ (data) {}
+            explicit Version (uint16_t b, uint16_t bd, uint32_t seq)
+                : bitmap_ (b), bitmap_deleted_ (bd), seq_no_ (seq) {}
+
+            Version (const Version& v) { this->data_ = v.data_; }
+            union {
+                struct {
+                    uint16_t bitmap_;
+                    uint16_t bitmap_deleted_;
+                    uint32_t seq_no_;
+                };
+                uint64_t data_;
+            };
+
+            inline bool IsPosValid (int i) { return (bitmap_ & ~bitmap_deleted_ & (1 << i)) != 0; }
+
+            bool operator== (const Version& v1) { return data_ == v1.data_; }
+            bool operator!= (const Version& v1) { return data_ != v1.data_; }
+        };
 
         explicit CellMeta256V2 (char* rep)
-            : meta_ (_mm256_loadu_si256 (reinterpret_cast<const __m256i*> (rep))) {
-            uint32_t tmp = __atomic_load_n ((uint32_t*)rep, __ATOMIC_ACQUIRE);
-            bitmap_ = tmp & BitMapMask;
-            bitmap_deleted_ = (tmp >> 16) & BitMapMask;
-        }
+            // obtain the hash tags to meta_
+            : meta_ (_mm_loadu_si128 (reinterpret_cast<const __m128i*> (rep + 16))),
+              ver_ (LoadVersion (rep)) {}
 
         ~CellMeta256V2 () {}
 
-        // return a bitset, the slot that matches the hash is set to 1
-        inline util::BitSet MatchBitSet (uint16_t hash) {
-            auto bitset = _mm256_set1_epi16 (hash);
-            uint16_t mask = _mm256_cmpeq_epi16_mask (bitset, meta_);
-            return util::BitSet (mask & bitmap_ &
-                                 (~bitmap_deleted_));  // valid filter and detetion filter.
+        static inline __m128i SetHashVec (H2Tag hash) { return _mm_set1_epi8 (hash); }
+
+        static inline Version LoadVersion (char* cell_addr) {
+            return Version (__atomic_load_n ((uint64_t*)cell_addr, __ATOMIC_ACQUIRE) &
+                            (0xFFFF'FFFF'FFFC'FFFCLU));
         }
 
-        // return a bitset, which indicates where to insert
-        inline util::BitSet EmptyBitSet () {
-            return util::BitSet ((~bitmap_ | (bitmap_deleted_ & bitmap_)) & BitMapMask);
+        static inline void StoreVersion (char* cell_addr, const Version& v) {
+            __atomic_store_n (reinterpret_cast<uint64_t*> (cell_addr), v.data_, __ATOMIC_RELEASE);
         }
+
+        static inline SlotType* LocateSlot (char* cell_addr, int slot_i) {
+            return reinterpret_cast<SlotType*> (cell_addr + (slot_i << SlotSizeLeftShift));
+        }
+
+        static inline H2Tag* LocateH2Tag (char* cell_addr, int slot_i) {
+            return reinterpret_cast<H2Tag*> (cell_addr + 16) + slot_i;
+        }
+
+        inline Version GetVersion () { return ver_; }
+
+        inline util::BitSet MatchBitSet (const __m128i& hash_vec) {
+#ifdef __AVX512__
+            uint16_t mask = _mm_cmpeq_epi8_mask (hash_vec, meta_);
+#else
+            auto compare_res = _mm_cmpeq_epi8 (hash_vec, meta_);
+            uint16_t mask = _mm_movemask_epi8 (compare_res);
+#endif
+            return util::BitSet (mask & ver_.bitmap_ & ~ver_.bitmap_deleted_ & BitMapMask);
+        }
+
+        inline util::BitSet EraseBitSet () {
+            return util::BitSet (ver_.bitmap_deleted_ & BitMapMask);
+        }
+
+        inline util::BitSet BackupBitSet () { return util::BitSet (~ver_.bitmap_ & BitMapMask); }
 
         inline util::BitSet ValidBitSet () {
-            return util::BitSet (bitmap_ & BitMapMask & (~bitmap_deleted_));
+            return util::BitSet (ver_.bitmap_ & ~ver_.bitmap_deleted_ & BitMapMask);
         }
 
-        inline bool IsDeleted (int i) { return (bitmap_deleted_ >> i) & 0x1; }
+        inline bool IsDeleted (int i) { return (ver_.bitmap_deleted_ >> i) & 0x1; }
 
-        inline bool Full () { return __builtin_popcount (bitmap_ & BitMapMask) == 13; }
+        inline bool Full () { return __builtin_popcount (ver_.bitmap_ & BitMapMask) == 13; }
 
-        inline bool Occupy (int slot_index) { return bitmap_ & (1 << slot_index); }
+        inline bool Occupy (int slot_index) { return ver_.bitmap_ & (1 << slot_index); }
 
-        inline int OccupyCount () { return __builtin_popcount (bitmap_); }
+        inline int OccupyCount () { return __builtin_popcount (ver_.bitmap_); }
 
         inline static constexpr uint8_t StartSlotPos () { return 2; }
 
@@ -1016,7 +966,8 @@ public:
         }
 
         inline static constexpr uint32_t SlotMaxRange () {
-            // used for rehashing. Though we have 16 slots, one is reserved for update and deletion.
+            // used for rehashing. Though we have 16 slots, one is reserved for update
+            // and deletion.
             return 15;
         }
 
@@ -1038,8 +989,8 @@ public:
             uint64_t H2s[4];
             memcpy (H2s, &meta_, 32);
             sprintf (buffer, "bitmap: 0b%s, deleted: 0b%s - H2: 0x%016lx%016lx%016lx%016lx",
-                     print_binary (bitmap_).c_str (), print_binary (bitmap_deleted_).c_str (),
-                     H2s[3], H2s[2], H2s[1], H2s[0]);
+                     print_binary (ver_.bitmap_).c_str (),
+                     print_binary (ver_.bitmap_deleted_).c_str (), H2s[3], H2s[2], H2s[1], H2s[0]);
             return buffer;
         }
 
@@ -1056,10 +1007,158 @@ public:
             return buffer;
         }
 
-        __m256i meta_;             // 32 byte integer vector
-        uint16_t bitmap_;          // 1: occupied, 0: empty or deleted
-        uint16_t bitmap_deleted_;  // 1: deleted
-    };                             // end of class CellMeta256V2
+        __m128i meta_;  // 16 byte integer vector for hash tags
+        Version ver_;
+
+    };  // end of class CellMeta256V2
+
+    /** CellMeta128
+     *  @note: Hash cell whose size is 128 byte. There are 7 slots in the cell.
+     *  @format:
+     *  | ------------------- 16 Byte meta -----------------| ----- Slots -----
+     *  |   2 Bytes   | 2 Byte |      4 Bytes    |  8 Bytes | 16 byte * 7 slot
+     *  | Bitmap Zone |  None  | Sequence Number | Hash Tag |
+     *
+     *  |- Bitmap Zone:
+     *      1  -  7 bit: bitmap_, indicate which slot is valid or not
+     *      9  - 15 bit: bitmap_deleted_, 1: deleted
+     *
+     *  |- Sequence Number: increase for each write
+     *
+     *  |- Hash Tag
+     *      One byte tag (H2) for the slot
+     *
+     *  |- Slots:
+     *      0  -  7 byte: H1 tag or real key for flat_key
+     *      8  - 15 byte: pointer to data or read value for flat_value
+     */
+    class CellMeta128 {
+    public:
+        static constexpr uint8_t BitMapMask = 0xFE;
+        static constexpr int CellSizeLeftShift = 7;
+        static constexpr int SlotSizeLeftShift = 4;
+        static constexpr int kDeleteBitmapOffset = 8;
+
+        struct Version {
+            explicit Version (uint64_t data) : data_ (data) {}
+            explicit Version (uint8_t b, uint8_t bd, uint32_t seq)
+                : bitmap_ (b), bitmap_deleted_ (bd), seq_no_ (seq) {}
+            union {
+                struct {
+                    uint8_t bitmap_;
+                    uint8_t bitmap_deleted_;
+                    uint16_t _none;
+                    uint32_t seq_no_;
+                };
+                uint64_t data_;
+            };
+
+            inline bool IsPosValid (int i) { return (bitmap_ & ~bitmap_deleted_ & (1 << i)) != 0; }
+
+            bool operator== (const Version& v1) { return data_ == v1.data_; }
+            bool operator!= (const Version& v1) { return data_ != v1.data_; }
+        };
+
+        explicit CellMeta128 (char* rep)
+            // obtain the hash tags to meta_
+            : meta_ ((*reinterpret_cast<__m64*> (rep + 8))), ver_ (LoadVersion (rep)) {}
+
+        ~CellMeta128 () {}
+
+        static __m64 SetHashVec (uint16_t hash) { return _mm_set1_pi8 (hash); }
+
+        static inline Version LoadVersion (char* cell_addr) {
+            return Version (__atomic_load_n ((uint64_t*)cell_addr, __ATOMIC_ACQUIRE) &
+                            (0xFFFF'FFFF'0000'FEFELU));
+        }
+
+        static inline void StoreVersion (char* cell_addr, const Version& v) {
+            __atomic_store_n (reinterpret_cast<uint64_t*> (cell_addr), v.data_, __ATOMIC_RELEASE);
+        }
+
+        static inline SlotType* LocateSlot (char* cell_addr, int slot_i) {
+            return reinterpret_cast<SlotType*> (cell_addr + (slot_i << SlotSizeLeftShift));
+        }
+
+        static inline H2Tag* LocateH2Tag (char* cell_addr, int slot_i) {
+            return reinterpret_cast<H2Tag*> (cell_addr + 8) + slot_i;
+        }
+
+        inline Version GetVersion () { return ver_; }
+
+        inline util::BitSet MatchBitSet (const __m64& hash_vec) {
+            auto compare_res = _mm_cmpeq_pi8 (hash_vec, meta_);
+            uint8_t mask = _mm_movemask_pi8 (compare_res);
+            return util::BitSet (mask & ver_.bitmap_ & ~ver_.bitmap_deleted_ & BitMapMask);
+        }
+
+        inline util::BitSet EraseBitSet () {
+            return util::BitSet (ver_.bitmap_deleted_ & BitMapMask);
+        }
+
+        inline util::BitSet BackupBitSet () { return util::BitSet (~ver_.bitmap_ & BitMapMask); }
+
+        inline util::BitSet ValidBitSet () {
+            return util::BitSet (ver_.bitmap_ & ~ver_.bitmap_deleted_ & BitMapMask);
+        }
+
+        inline bool IsDeleted (int i) { return (ver_.bitmap_deleted_ >> i) & 0x1; }
+
+        inline bool Full () { return __builtin_popcount (ver_.bitmap_ & BitMapMask) == 6; }
+
+        inline bool Occupy (int slot_index) { return ver_.bitmap_ & (1 << slot_index); }
+
+        inline int OccupyCount () { return __builtin_popcount (ver_.bitmap_); }
+
+        inline static constexpr uint8_t StartSlotPos () { return 1; }
+
+        inline static constexpr uint32_t CellSize () {
+            // cell size (include meta) in byte
+            return 128;
+        }
+
+        inline static constexpr uint32_t SlotMaxRange () { return 7; }
+
+        inline static constexpr uint32_t SlotCount () {
+            // slot count
+            return 7;
+        }
+
+        inline static std::string Name () { return "CellMeta128"; }
+
+        inline static constexpr size_t size () {
+            // the meta size in byte in current cell
+            return 16;
+        }
+
+        std::string BitMapToString () {
+            std::string res;
+            char buffer[1024];
+            uint64_t H2s[2];
+            memcpy (H2s, &meta_, 16);
+            sprintf (buffer, "bitmap: 0b%s, deleted: 0b%s - H2: 0x%016lx%016lx",
+                     print_binary (ver_.bitmap_).c_str (),
+                     print_binary (ver_.bitmap_deleted_).c_str (), H2s[1], H2s[0]);
+            return buffer;
+        }
+
+        std::string ToString () { return BitMapToString (); }
+
+        std::string print_binary (uint16_t bitmap) {
+            char buffer[1024];
+            static std::string bit_rep[16] = {"0000", "0001", "0010", "0011", "0100", "0101",
+                                              "0110", "0111", "1000", "1001", "1010", "1011",
+                                              "1100", "1101", "1110", "1111"};
+            sprintf (buffer, "%s%s%s%s", bit_rep[(bitmap >> 12) & 0x0F].c_str (),
+                     bit_rep[(bitmap >> 8) & 0x0F].c_str (), bit_rep[(bitmap >> 4) & 0x0F].c_str (),
+                     bit_rep[(bitmap >> 0) & 0x0F].c_str ());
+            return buffer;
+        }
+
+        __m64 meta_;  // 8 byte integer vector
+        Version ver_;
+
+    };  // end of class CellMeta128
 
     /** ProbeWithinBucket
      *  @note: probe within a bucket
@@ -1108,7 +1207,7 @@ public:
     static_assert (kCellCountLimit <= kTurboCellCountLimit,
                    "kCellCountLimit needs to be <= kTurboCellCountLimit");
 
-    using CellMeta = CellMeta256V2;
+    using CellMeta = CellMeta128;
     using WHash = WrapHash<Hash>;
     using WKeyEqual = WrapKeyEqual<KeyEqual>;
 
@@ -1123,7 +1222,7 @@ public:
         uint8_t slot;      // slot index
         uint8_t old_slot;  // if equal_key, this save old slot position
         H1Tag H1;          // hash-tag in HashSlot
-        H2Tag H2;          // hash-tag in CellMeta256V2
+        H2Tag H2;          // hash-tag in CellMeta
         bool equal_key;    // If we find a equal key in this slot
         SlotInfo (uint32_t b, uint32_t a, int s, H1Tag h1, H2Tag h2, bool euqal, int os = 0)
             : bucket (b), cell (a), slot (s), old_slot (os), H1 (h1), H2 (h2), equal_key (euqal) {}
@@ -1159,7 +1258,20 @@ public:
     };
 
     template <typename T1, bool key_flat, bool value_flat>
-    struct DataRecord : public HashSlot {};
+    class DataRecord;
+
+    template <typename T1>
+    class DataRecord<T1, true, true> {
+    public:
+        DataRecord () = default;
+        explicit DataRecord (const H1Tag& k, const Entry& v) : key_ (k), val_ (v) {}
+        inline Key key () { return key_; }
+        inline T value () { return val_; }
+
+    private:
+        Key key_;
+        T val_;
+    };
 
     /**
      * @brief both key and value is numeric type
@@ -1167,65 +1279,84 @@ public:
      *          | key | value |
      */
     template <typename T1>
-    struct DataRecord<T1, true, true> : public HashSlot {
+    struct SlotRecord<T1, true, true> : public HashSlot {
         inline void Store (uint64_t hash, const Key& key, const T& value,
                            RecordAllocator& allocator) {
             HashSlot::H1 = key;
             HashSlot::entry = value;
         }
 
+        inline char* ReleaseAddress () { return nullptr; }
+
         inline Key first (void) { return HashSlot::H1; }
 
         inline T second (void) { return HashSlot::entry; }
 
         inline Key compareKey (void) { return HashSlot::H1; }
+
+        DataRecord<T1, true, true> Record () {
+            return DataRecord<T1, true, true>{HashSlot::H1, HashSlot::entry};
+        }
+    };
+
+    template <typename T1>
+    class DataRecord<T1, true, false> {
+    public:
+        DataRecord () = default;
+        explicit DataRecord (const H1Tag& k, const Entry& ptr) : key_ (k), ptr_ (ptr) {}
+        inline Key key () { return key_; }
+        inline T value () { return DecodeInRecord2<true, false, false, Key, T>::Decode (ptr_); }
+
+    private:
+        Key key_;
+        Entry ptr_;
     };
 
     /**
      * @brief key is numeric, value is std::string
      * HashSlot:
-     *          | key | pointer | -> | val_len | value
-     *                               | size_t  | ...
+     *          | key | pointer | -> | key | val_len | value
+     *                                     | size_t  | ...
      */
     template <typename T1>
-    struct DataRecord<T1, true, false> : public HashSlot {
+    struct SlotRecord<T1, true, false> : public HashSlot {
         inline void Store (uint64_t hash, const Key& key, const T& value,
                            RecordAllocator& allocator) {
-            // if previous pointer is not emtpy
-            char* old_addr = HashSlot::entry;
-            if (old_addr != nullptr) {
-                // check if old addr space is large enough
-                size_t old_val_len = *reinterpret_cast<size_t*> (old_addr);
-                if (old_val_len >= value.size ()) {
-                    EncodeToRecord1<false, T>::Encode (value, old_addr);
-
-                    HashSlot::H1 = key;
-                    return;
-                } else {
-                    allocator.Release (old_addr);
-                }
-            }
-
-            size_t new_value_size = value.size ();
-            char* addr = (char*)allocator.Allocate (new_value_size + sizeof (size_t));
-            *reinterpret_cast<size_t*> (addr) = new_value_size;
-            memcpy (addr + sizeof (size_t), value.data (), new_value_size);
+            size_t buf_len = Record2Format<true, false, Key, T>::Length (key, value);
+            char* addr = (char*)allocator.Allocate (buf_len);
+            EncodeToRecord2<true, false, Key, T>::Encode (key, value, addr);
 
             HashSlot::H1 = key;
             HashSlot::entry = addr;
         }
 
+        inline char* ReleaseAddress () { return HashSlot::entry; }
+
         inline Key first (void) { return HashSlot::H1; }
 
         inline T second (void) {
-            char* addr = HashSlot::entry;
-            size_t value_size = *reinterpret_cast<size_t*> (addr);
-            return util::Slice (addr + sizeof (size_t), value_size);
+            return DecodeInRecord2<true, false, false, Key, T>::Decode (HashSlot::entry);
         }
 
         inline Key compareKey (void) { return HashSlot::H1; }
+
+        DataRecord<T1, true, false> Record () {
+            return DataRecord<T1, true, false>{HashSlot::H1, HashSlot::entry};
+        }
     };
 
+    template <typename T1>
+    class DataRecord<T1, false, true> {
+    public:
+        DataRecord () = default;
+        explicit DataRecord (const H1Tag& k, const Entry& kvptr) : h1_ (k), ptr_ (kvptr) {}
+        inline Key key () { return DecodeInRecord2<false, true, true, Key, T>::Decode (ptr_); }
+        inline T value () { return DecodeInRecord2<false, true, false, Key, T>::Decode (ptr_); }
+
+    private:
+        H1Tag h1_;
+        Entry ptr_;
+    };
     /**
      * @brief key is std::string, value is numeric
      * HashSlot:
@@ -1233,25 +1364,9 @@ public:
      *                              | size_t  |   T   |  ...
      */
     template <typename T1>
-    struct DataRecord<T1, false, true> : public HashSlot {
+    struct SlotRecord<T1, false, true> : public HashSlot {
         inline void Store (uint64_t hash, const Key& key, const T& value,
                            RecordAllocator& allocator) {
-            char* old_addr = HashSlot::entry;
-            if (old_addr != nullptr) {
-                size_t old_buf_len = Record2Size<false, true, Key, T>::Size (old_addr);
-                size_t new_buf_len = Record2Format<false, true, Key, T>::Length (key, value);
-
-                if (old_buf_len >= new_buf_len) {
-                    // reuse old space
-                    EncodeToRecord2<false, true, Key, T>::Encode (key, value, old_addr);
-
-                    HashSlot::H1 = hash;
-                    return;
-                } else {
-                    allocator.Release (old_addr);
-                }
-            }
-
             size_t buf_len = Record2Format<false, true, Key, T>::Length (key, value);
             char* addr = (char*)allocator.Allocate (buf_len);
             EncodeToRecord2<false, true, Key, T>::Encode (key, value, addr);
@@ -1259,6 +1374,8 @@ public:
             HashSlot::H1 = hash;
             HashSlot::entry = addr;
         }
+
+        inline char* ReleaseAddress () { return HashSlot::entry; }
 
         inline Key first (void) {
             return DecodeInRecord2<false, true, true, Key, T>::Decode (HashSlot::entry);
@@ -1271,8 +1388,24 @@ public:
         inline util::Slice compareKey (void) {
             return DecodeInRecord2<false, true, true, Key, T>::Decode (HashSlot::entry);
         }
+
+        DataRecord<T1, false, true> Record () {
+            return DataRecord<T1, false, true>{HashSlot::H1, HashSlot::entry};
+        }
     };
 
+    template <typename T1>
+    class DataRecord<T1, false, false> {
+    public:
+        DataRecord () = default;
+        explicit DataRecord (const H1Tag& k, const Entry& kvptr) : h1_ (k), ptr_ (kvptr) {}
+        inline Key key () { return DecodeInRecord2<false, false, true, Key, T>::Decode (ptr_); }
+        inline T value () { return DecodeInRecord2<false, false, false, Key, T>::Decode (ptr_); }
+
+    private:
+        H1Tag h1_;
+        Entry ptr_;
+    };
     /**
      * @brief key and value both are std::string
      * HashSlot:
@@ -1281,22 +1414,9 @@ public:
      *
      */
     template <typename T1>
-    struct DataRecord<T1, false, false> : public HashSlot {
+    struct SlotRecord<T1, false, false> : public HashSlot {
         inline void Store (uint64_t hash, const Key& key, const T& value,
                            RecordAllocator& allocator) {
-            char* old_addr = HashSlot::entry;
-            if (old_addr != nullptr) {
-                size_t old_buf_len = Record2Size<false, false, Key, T>::Size (old_addr);
-                size_t new_buf_len = Record2Format<false, false, Key, T>::Length (key, value);
-
-                if (old_buf_len >= new_buf_len) {
-                    EncodeToRecord2<false, false, Key, T>::Encode (key, value, old_addr);
-                    HashSlot::H1 = hash;
-                    return;
-                }
-                allocator.Release (old_addr);
-            }
-
             size_t buf_len = Record2Format<false, false, Key, T>::Length (key, value);
             char* addr = (char*)allocator.Allocate (buf_len);
             EncodeToRecord2<false, false, Key, T>::Encode (key, value, addr);
@@ -1304,6 +1424,8 @@ public:
             HashSlot::H1 = hash;
             HashSlot::entry = addr;
         }
+
+        inline char* ReleaseAddress () { return HashSlot::entry; }
 
         inline Key first (void) {
             return DecodeInRecord2<false, false, true, Key, T>::Decode (HashSlot::entry);
@@ -1316,9 +1438,13 @@ public:
         inline util::Slice compareKey (void) {
             return DecodeInRecord2<false, false, true, Key, T>::Decode (HashSlot::entry);
         }
+
+        DataRecord<T1, false, false> Record () {
+            return DataRecord<T1, false, false>{HashSlot::H1, HashSlot::entry};
+        }
     };
 
-    using value_type = DataRecord<Key, is_key_flat, is_value_flat>;
+    using RecordType = DataRecord<Key, is_key_flat, is_value_flat>;
 
     /** BucketMeta
      *  @note: a 8-byte
@@ -1331,7 +1457,7 @@ public:
 
         BucketMeta () : data_ (0) {}
 
-        BucketMeta (const BucketMeta& a) { data_ = a.data_; }
+        BucketMeta (const BucketMeta& a) = default;
 
         inline char* Address () { return (char*)(data_ >> 16); }
 
@@ -1340,8 +1466,7 @@ public:
         inline uint32_t CellCount () { return (1 << ((data_ >> 8) & 0xFF)); }
 
         inline void Reset (char* addr, uint32_t cell_count) {
-            data_ = (data_ & 0x00000000000000FF) | (((uint64_t)addr) << 16) |
-                    (__builtin_ctz (cell_count) << 8);
+            data_ = (data_ & 0xFF) | (((uint64_t)addr) << 16) | (__builtin_ctz (cell_count) << 8);
         }
 
         inline bool TryLock (void) {
@@ -1365,7 +1490,7 @@ public:
         inline bool IsRehashLocked (void) { return util::turbo_lockbusy ((uint32_t*)(&data_), 1); }
 
         // LSB
-        // | 1 bit lock | 7 bit reserved | 8 bit cell mask | 48 bit address |
+        // | 1 b bucket lock | 1 b rehash lock | 6 b reserved | 8 b cell mask | 48 b address |
         uint64_t data_;
     };
 
@@ -1378,7 +1503,7 @@ public:
     };
 
     /** Usage: iterator every slot in the bucket, return the pointer in the slot
-     *  BucketIterator<CellMeta256V2> iter(bucket_addr, cell_count_);
+     *  BucketIterator<CellMeta> iter(bucket_addr, cell_count_);
      *  while (iter.valid()) {
      *      ...
      *      ++iter;
@@ -1388,7 +1513,7 @@ public:
     public:
         struct InfoPair {
             SlotInfo slot_info;
-            HashSlot hash_slot;
+            SlotType hash_slot;
         };
 
         BucketIterator (uint32_t bi, char* bucket_addr, size_t cell_count, size_t cell_i = 0)
@@ -1398,7 +1523,7 @@ public:
               bitmap_ (0),
               bucket_addr_ (bucket_addr) {
             assert (bucket_addr != 0);
-            CellMeta256V2 meta (bucket_addr);
+            CellMeta meta (bucket_addr);
             bitmap_ = meta.ValidBitSet ();
             if (!bitmap_) toNextValidBitMap ();
             // printf("Initial Bucket iter at ai: %u, si: %u\n", cell_i_, *bitmap_);
@@ -1418,9 +1543,9 @@ public:
         inline InfoPair operator* () const {
             // return the cell index, slot index and its slot content
             uint8_t slot_index = *bitmap_;
-            char* cell_addr = bucket_addr_ + cell_i_ * CellMeta256V2::CellSize ();
-            HashSlot* slot = locateSlot (cell_addr, slot_index);
-            H2Tag H2 = *locateH2Tag (cell_addr, slot_index);
+            char* cell_addr = bucket_addr_ + cell_i_ * CellMeta::CellSize ();
+            HashSlot* slot = CellMeta::LocateSlot (cell_addr, slot_index);
+            H2Tag H2 = *CellMeta::LocateH2Tag (cell_addr, slot_index);
             return {{bi_ /* ignore bucket index */, cell_i_ /* cell index */,
                      *bitmap_ /* slot index*/, static_cast<H1Tag> (slot->H1), H2, false, 0},
                     *slot};
@@ -1439,8 +1564,8 @@ public:
             while (!bitmap_ && cell_i_ < cell_count_) {
                 cell_i_++;
                 if (cell_i_ == cell_count_) return;
-                char* cell_addr = bucket_addr_ + (cell_i_ << CellMeta256V2::CellSizeLeftShift);
-                CellMeta256V2 meta (cell_addr);
+                char* cell_addr = bucket_addr_ + (cell_i_ << CellMeta::CellSizeLeftShift);
+                CellMeta meta (cell_addr);
                 bitmap_ = meta.ValidBitSet ();
             }
         }
@@ -1462,10 +1587,10 @@ public:
 
 public:
     static constexpr int kSizeVecCount = 1 << 4;
-    explicit TurboHashTable (uint32_t bucket_count = 16 << 10, uint32_t cell_count = 32)
+    explicit TurboHashTable (uint32_t bucket_count = 64 << 10, uint32_t cell_count = 32)
         : bucket_count_ (bucket_count),
           bucket_mask_ (bucket_count - 1),
-          capacity_ (bucket_count * cell_count * (CellMeta256V2::SlotCount () - 1)),
+          capacity_ (bucket_count * cell_count * (CellMeta::SlotCount () - 1)),
           size_ (0) {
         if (!util::isPowerOfTwo (bucket_count) || !util::isPowerOfTwo (cell_count)) {
             printf ("the hash table size setting is wrong. bucket: %u, cell: %u\n", bucket_count,
@@ -1480,6 +1605,7 @@ public:
             fprintf (stderr, "malloc %lu space fail.\n", bucket_meta_space);
             exit (1);
         }
+
         memset ((char*)buckets_addr, 0, bucket_meta_space);
 
         buckets_ = buckets_addr;
@@ -1491,8 +1617,29 @@ public:
         }
     }
 
+    template <bool should_free>
+    typename std::enable_if<should_free == true>::type releaseAllRecords () {
+        IterateAllCallback ([] (char* addr) { free (addr); });
+    }
+
+    template <bool should_free>
+    typename std::enable_if<should_free == false>::type releaseAllRecords () {}
+
+    void ReleaseRecords () { releaseAllRecords<!is_key_flat || !is_value_flat> (); }
+
+    ~TurboHashTable () {
+        ReleaseRecords ();
+        for (size_t b = 0; b < bucket_count_; b++) {
+            BucketMeta* bucket_meta = locateBucket (b);
+            char* addr = bucket_meta->Address ();
+            free (addr);
+        }
+        free (buckets_);
+    }
+
     /** MinorReHashAll
-     *  @note: not thread safe. This global rehashing will double the hash table capacity.
+     *  @note: not thread safe. This global rehashing will double the hash table
+     * capacity.
      *  !
      */
     size_t MinorReHashAll () {
@@ -1508,9 +1655,35 @@ public:
                 size_t start_b = bucket_count_ / rehash_thread * t;
                 size_t end_b = start_b + bucket_count_ / rehash_thread;
                 size_t counts = 0;
-                // printf("Rehash bucket [%lu, %lu)\n", start_b, end_b);
                 for (size_t i = start_b; i < end_b; ++i) {
                     counts += MinorRehash (i);
+                }
+                rehash_count.fetch_add (counts, std::memory_order_relaxed);
+            });
+        }
+        std::for_each (workers.begin (), workers.end (), [] (std::thread& t) { t.join (); });
+        double rehash_duration = util::NowMicros () - rehash_start;
+        printf ("Real rehash speed: %f Mops/s. entries: %lu, duration: %.2f s.\n",
+                (double)rehash_count / rehash_duration, rehash_count.load (),
+                rehash_duration / 1000000.0);
+        return rehash_count.load ();
+    }
+
+    size_t GCAll () {
+        // gc for all the buckets
+        int rehash_thread = 4;
+        printf ("Rehash threads: %d\n", rehash_thread);
+        std::vector<std::thread> workers (rehash_thread);
+        std::vector<size_t> add_capacity (rehash_thread, 0);
+        std::atomic<size_t> rehash_count (0);
+        auto rehash_start = util::NowMicros ();
+        for (int t = 0; t < rehash_thread; t++) {
+            workers[t] = std::thread ([&, t] {
+                size_t start_b = bucket_count_ / rehash_thread * t;
+                size_t end_b = start_b + bucket_count_ / rehash_thread;
+                size_t counts = 0;
+                for (size_t i = start_b; i < end_b; ++i) {
+                    counts += MinorRehash (i, true);
                 }
                 rehash_count.fetch_add (counts, std::memory_order_relaxed);
             });
@@ -1535,14 +1708,15 @@ public:
         int loop_count = 0;
 
         // find next cell that is not full yet
-        uint32_t SLOT_MAX_RANGE = CellMeta256V2::SlotMaxRange ();
+        uint32_t SLOT_MAX_RANGE = CellMeta::SlotMaxRange ();
         while (slot_vec[ai] >= SLOT_MAX_RANGE) {
             // because we use linear probe, if this cell is full, we go to next cell
             ai += ProbeWithinBucket::PROBE_STEP;
             loop_count++;
-            if (TURBO_UNLIKELY (loop_count > ProbeWithinBucket::MAX_PROBE_LEN)) {
+            if TURBO_UNLIKELY (loop_count > ProbeWithinBucket::MAX_PROBE_LEN) {
                 printf (
-                    "ERROR!!! Even we rehash this bucket, we cannot find a valid slot within %d "
+                    "ERROR!!! Even we rehash this bucket, we cannot find a valid "
+                    "slot within %d "
                     "probe\n",
                     ProbeWithinBucket::MAX_PROBE_LEN);
                 exit (1);
@@ -1554,13 +1728,13 @@ public:
         return {ai, slot_vec[ai]++};
     }
 
-    size_t MinorRehash (int bi) {
+    size_t MinorRehash (int bi, bool isgc = false) {
         size_t count = 0;
         BucketMeta* bucket_meta = locateBucket (bi);
 
         // Step 1. Create new bucket and initialize its meta
         uint32_t old_cell_count = bucket_meta->CellCount ();
-        uint32_t new_cell_count = old_cell_count << 1;
+        uint32_t new_cell_count = isgc ? old_cell_count : old_cell_count << 1;
         uint32_t new_cell_count_mask = new_cell_count - 1;
         char* old_bucket_addr = bucket_meta->Address ();
         char* new_bucket_addr = cell_allocator_.Allocate (new_cell_count);
@@ -1570,7 +1744,7 @@ public:
             exit (1);
         }
 
-        capacity_.fetch_add (old_cell_count * (CellMeta256V2::SlotCount () - 1));
+        capacity_.fetch_add (old_cell_count * (CellMeta::SlotCount () - 1));
 
         if (new_bucket_addr == nullptr) {
             perror ("rehash alloc memory fail\n");
@@ -1580,20 +1754,22 @@ public:
         // Reset all cell's meta data
         for (size_t i = 0; i < new_cell_count; ++i) {
             char* des_cell_addr = new_bucket_addr + (i << kCellSizeLeftShift);
-            memset (des_cell_addr, 0, CellMeta256V2::size ());
+            memset (des_cell_addr, 0, CellMeta::size ());
         }
 
         // ----------------------------------------------------------------------------------
         // iterator old bucket and insert slots info to new bucket
         // old: |11111111|22222222|33333333|44444444|
         //       ========>
-        // new: |1111    |22222   |333     |4444    |1111    |222     |33333   |4444    |
+        // new: |1111    |22222   |333     |4444    |1111    |222     |33333   |4444
+        // |
         // ----------------------------------------------------------------------------------
 
         // Step 2. Move the meta in old bucket to new bucket
-        //      a) Record next avaliable slot position of each cell within new bucket for rehash
+        //      a) Record next avaliable slot position of each cell within new
+        //      bucket for rehash
         uint8_t* slot_vec = (uint8_t*)malloc (new_cell_count);
-        memset (slot_vec, CellMeta256V2::StartSlotPos (), new_cell_count);
+        memset (slot_vec, CellMeta::StartSlotPos (), new_cell_count);
         BucketIterator iter (bi, bucket_meta->Address (), bucket_meta->CellCount ());
         //      b) Iterate every slot in this bucket
         while (iter.valid ()) {
@@ -1607,7 +1783,7 @@ public:
                 findNextSlotInRehash (slot_vec, res.slot_info.H1, new_cell_count_mask);
             //      b) obtain des cell addr
             char* des_cell_addr = new_bucket_addr + (valid_slot.cell_index << kCellSizeLeftShift);
-            if (valid_slot.slot_index >= CellMeta256V2::SlotMaxRange ()) {
+            if (valid_slot.slot_index >= CellMeta::SlotMaxRange ()) {
                 printf ("rehash fail: %s\n", res.slot_info.ToString ().c_str ());
                 printf ("%s\n", PrintBucketMeta (res.slot_info.bucket).c_str ());
                 exit (1);
@@ -1619,11 +1795,12 @@ public:
             // Step 3. to next old slot
             ++iter;
         }
-        //      c) set remaining slots' slot pointer to 0 (including the backup slot)
+        //      c) set remaining slots' slot pointer to 0 (including the backup
+        //      slot)
         for (uint32_t ci = 0; ci < new_cell_count; ++ci) {
             char* des_cell_addr = new_bucket_addr + (ci << kCellSizeLeftShift);
-            for (uint8_t si = slot_vec[ci]; si <= CellMeta256V2::SlotMaxRange (); si++) {
-                HashSlot* des_slot = locateSlot (des_cell_addr, si);
+            for (uint8_t si = slot_vec[ci]; si <= CellMeta::SlotMaxRange (); si++) {
+                HashSlot* des_slot = CellMeta::LocateSlot (des_cell_addr, si);
                 des_slot->entry = 0;
                 des_slot->H1 = 0;
             }
@@ -1632,14 +1809,10 @@ public:
         // Step 3. Reset bucket meta in buckets_
         bucket_meta->Reset (new_bucket_addr, new_cell_count);
 
-        // Step 4. Release old bucket addr
-        cell_allocator_.Release (old_bucket_addr);
-
+        free (old_bucket_addr);
         free (slot_vec);
         return count;
     }
-
-    ~TurboHashTable () {}
 
     template <typename HashKey>
     inline size_t KeyToHash (HashKey& key) {
@@ -1654,7 +1827,7 @@ public:
         constexpr K operator() (K const& key) const noexcept { return key; }
     };
 
-    // For CellMeta256V2, H1 may be used to store real key,
+    // For CellMeta, H1 may be used to store real key,
     // we need to calculate the real hash of h1 accordingly.
     // If key is flat (store the real key), we need to hash h1.
     inline size_t H1ToHash (H1Tag h1) {
@@ -1669,18 +1842,16 @@ public:
     bool Put (const Key& key, const T& value) {
         // calculate hash value of the key
         size_t hash_value = KeyToHash (key);
-
         // update index, thread safe
         return insertSlot (key, value, hash_value);
     }
 
-    value_type* Find (const Key& key) {
+    SlotType* Find (const Key& key) {
         // calculate hash value of the key
         size_t hash_value = KeyToHash (key);
-
         FindSlotResult res = findSlot (key, hash_value);
         if (res.find) {
-            value_type* record = (value_type*)res.target_slot;
+            SlotType* record = res.record;
             return record;
         }
         return nullptr;
@@ -1689,37 +1860,8 @@ public:
     bool Delete (const Key& key) {
         // calculate hash value of the key
         size_t hash_value = KeyToHash (key);
-
         return deleteSlot (key, hash_value);
     }
-
-    value_type* Probe (const Key& key) {
-        // calculate hash value of the key
-        size_t hash_value = KeyToHash (key);
-
-        FindSlotResult res = probeFirstSlot (key, hash_value);
-        if (res.find) {
-            // probe a key having same H2 and H1 tag
-            value_type* record = (value_type*)res.target_slot;
-            return record;
-        }
-        return nullptr;
-    }
-
-    // // Return the entry if key exists
-    // bool Get(const Key& key, T* value)  {
-    //     // calculate hash value of the key
-    //     size_t hash_value = KeyToHash(key);
-
-    //     FindSlotResult res = findSlot(key, hash_value);
-    //     if (res.find) {
-    //         // find a key in hash table
-    //         value_type* record = (value_type*)res.target_slot;
-    //         *value = record->second();
-    //         return true;
-    //     }
-    //     return false;
-    // }
 
     double LoadFactor () {
         return (double)size_.load (std::memory_order_relaxed) /
@@ -1749,7 +1891,7 @@ public:
             SlotInfo& info = res.first;
             info.bucket = i;
             HashSlot& slot = res.second;
-            value_type* record = &slot;
+            SlotType* record = &slot;
             std::cout << info.ToString () << ", addr: " << slot.entry
                       << ". key: " << record->first () << ", value: " << record->second ()
                       << std::endl;
@@ -1766,16 +1908,42 @@ public:
                 auto res = (*iter);
                 SlotInfo& info = res.slot_info;
                 HashSlot& slot = res.hash_slot;
-                value_type* record = reinterpret_cast<value_type*> (&slot);
-                printf ("%s. key: 0x%lx, value: 0x%lx\n", info.ToString ().c_str (),
-                        record->first (), (size_t)record->second ());
-                // std::cout << info.ToString() << ", addr: " << slot.entry << ". key: " <<
-                // record->first() << ", value: " << record->second() << std::endl;
+                SlotType* record = reinterpret_cast<SlotType*> (&slot);
+                std::cout << info.ToString () << ", addr: " << slot.entry
+                          << ". key: " << record->first () << ", value: " << record->second ()
+                          << std::endl;
                 ++iter;
                 count++;
             }
         }
         printf ("iterato %lu entries. total size: %lu\n", count, Size ());
+    }
+
+    template <typename Fn>
+    void IterateAllCallback (Fn&& callback) {
+        size_t threads = std::min (8LU, bucket_count_);
+        std::vector<std::thread> workers (threads);
+        for (size_t t = 0; t < threads; t++) {
+            workers[t] = std::thread ([&, t] {
+                size_t start_b = bucket_count_ / threads * t;
+                size_t end_b = start_b + bucket_count_ / threads;
+                size_t count = 0;
+                for (size_t i = start_b; i < end_b; ++i) {
+                    BucketMeta* bucket_meta = locateBucket (i);
+                    BucketIterator iter (i, bucket_meta->Address (), bucket_meta->CellCount ());
+                    while (iter.valid ()) {
+                        auto res = (*iter);
+                        auto& slot = res.hash_slot;
+                        callback (slot.entry);
+                        ++iter;
+                        count++;
+                    }
+                }
+            });
+        }
+        std::for_each (workers.begin (), workers.end (), [] (std::thread& t) { t.join (); });
+
+        // printf ("iterato %lu entries. total size: %lu\n", count, Size ());
     }
 
     std::string ProbeStrategyName () { return ProbeWithinBucket::name (); }
@@ -1792,7 +1960,7 @@ public:
         int count_sum = 0;
         while (probe) {
             char* cell_addr = locateCell (search_bucket_addr, probe.offset ());
-            CellMeta256V2 meta (cell_addr);
+            CellMeta meta (cell_addr);
             int count = meta.OccupyCount ();
             sprintf (buffer, "\t%4u - 0x%12lx: %s. Cell valid slot count: %d. ", i++,
                      (uint64_t)cell_addr, meta.BitMapToString ().c_str (), count);
@@ -1800,7 +1968,7 @@ public:
             auto valid_bitset = meta.ValidBitSet ();
             for (int i : valid_bitset) {
                 std::ostringstream ss;
-                HashSlot* slot = locateSlot (cell_addr, i);
+                HashSlot* slot = CellMeta::LocateSlot (cell_addr, i);
                 ss << "s" << i << "H1: " << slot->H1 << ", ";
                 res += ss.str ();
             }
@@ -1808,9 +1976,9 @@ public:
             probe.next ();
             count_sum += count;
         }
-        sprintf (
-            buffer, "\tBucket %u: valid slot count: %d. Load factor: %f\n", bucket_i, count_sum,
-            (double)count_sum / ((CellMeta256V2::SlotCount () - 1) * bucket_meta->CellCount ()));
+        sprintf (buffer, "\tBucket %u: valid slot count: %d. Load factor: %f\n", bucket_i,
+                 count_sum,
+                 (double)count_sum / ((CellMeta::SlotCount () - 1) * bucket_meta->CellCount ()));
         res += buffer;
         return res;
     }
@@ -1821,12 +1989,13 @@ public:
         BucketMeta* bucket_meta = locateBucket (bucket_i);
         char* search_bucket_addr = bucket_meta->Address ();
         ProbeWithinBucket probe (0, bucket_meta->CellCountMask (), bucket_i);
+        uint32_t i = 0;
         int count_sum = 0;
         size_t probe_sum = 0;
         size_t cur_probe = 0;
         while (probe) {
             char* cell_addr = locateCell (search_bucket_addr, probe.offset ());
-            CellMeta256V2 meta (cell_addr);
+            CellMeta meta (cell_addr);
             int count = meta.OccupyCount ();
             if (count < meta.SlotCount () - 1) {
                 // not full
@@ -1838,13 +2007,13 @@ public:
             count_sum += count;
             probe_sum += cur_probe + 1;
         }
-        sprintf (
-            buffer,
-            "Bucket %u. Cell count: %d, valid slot count: %d. Load factor: %f Probe sum: %lu, Avg "
-            "probe dis: %.2f",
-            bucket_i, bucket_meta->CellCount (), count_sum,
-            (double)count_sum / ((CellMeta256V2::SlotCount () - 1) * bucket_meta->CellCount ()),
-            probe_sum, (double)probe_sum / bucket_meta->CellCount ());
+        sprintf (buffer,
+                 "Bucket %u. Cell count: %d, valid slot count: %d. Load factor: %f "
+                 "Probe sum: %lu, "
+                 "Avg probe dis: %.2f",
+                 bucket_i, bucket_meta->CellCount (), count_sum,
+                 (double)count_sum / ((CellMeta::SlotCount () - 1) * bucket_meta->CellCount ()),
+                 probe_sum, (double)probe_sum / bucket_meta->CellCount ());
         res += buffer;
         return res;
     }
@@ -1879,95 +2048,101 @@ private:
                (offset.second << kCellSizeLeftShift);  // locate the cell cell
     }
 
-    static inline HashSlot* locateSlot (char* cell_addr, int slot_i) {
-        return reinterpret_cast<HashSlot*> (cell_addr +
-                                            (slot_i << CellMeta256V2::SlotSizeLeftShift));
-    }
-
-    static inline H2Tag* locateH2Tag (char* cell_addr, int slot_i) {
-        return reinterpret_cast<H2Tag*> (cell_addr) + slot_i;
-    }
-
     // used in rehash function, move slot to new cell_addr
     inline void moveSlot (char* des_cell_addr, uint8_t des_slot_i, const SlotInfo& old_info,
                           const HashSlot& old_slot) {
         // move slot content, including H1 and pointer
-        HashSlot* des_slot = locateSlot (des_cell_addr, des_slot_i);
+        HashSlot* des_slot = CellMeta::LocateSlot (des_cell_addr, des_slot_i);
         des_slot->entry = old_slot.entry;
         des_slot->H1 = old_info.H1;
 
         // locate H2 and set H2
-        H2Tag* h2_tag_ptr = locateH2Tag (des_cell_addr, des_slot_i);
+        H2Tag* h2_tag_ptr = CellMeta::LocateH2Tag (des_cell_addr, des_slot_i);
         *h2_tag_ptr = old_info.H2;
 
         // obtain and set bitmap
-        decltype (CellMeta256V2::bitmap_)* bitmap =
-            (decltype (CellMeta256V2::bitmap_)*)des_cell_addr;
+        decltype (CellMeta::Version::bitmap_)* bitmap =
+            (decltype (CellMeta::Version::bitmap_)*)des_cell_addr;
         *bitmap = (*bitmap) | (1 << des_slot_i);
     }
 
-    /** insertToSlotAndRecycle
+    /** insertToSlotAndGC
      *  @note: Reuse or recycle the space of target slot's old entry.
      *         Set bitmap, H2, H1, pointer.
      */
-    inline void insertToSlotAndRecycle (size_t hash_value, const Key& key, const T& value,
-                                        char* cell_addr, const SlotInfo& info) {
+    inline void insertToSlotAndGC (size_t hash_value, const Key& key, const T& value,
+                                   char* cell_addr, const SlotInfo& info) {
         // locate the target slot
-        HashSlot* slot = locateSlot (cell_addr, info.slot);
+        SlotType* slot = CellMeta::LocateSlot (cell_addr, info.slot);
 
         // store the key value to slot
-        value_type* record = (value_type*)slot;
-        record->Store (hash_value, key, value, record_allocator_);
+        slot->Store (hash_value, key, value, record_allocator_);
 
         // set H2
-        H2Tag* h2_tag_ptr = locateH2Tag (cell_addr, info.slot);
+        H2Tag* h2_tag_ptr = CellMeta::LocateH2Tag (cell_addr, info.slot);
         *h2_tag_ptr = info.H2;
 
         // obtain bitmap and set bitmap
-        //  0 - 15: valid_bitmap zone
-        // 16 - 31: delete_bitmap zone
-        uint32_t* bitmap = (uint32_t*)cell_addr;
+        auto version = CellMeta::LoadVersion (cell_addr);
 
-        uint32_t new_bitmap = (*bitmap);
         if (true == info.equal_key) {
-            new_bitmap = (new_bitmap | (1 << info.slot)) ^
-                         (1 << info.old_slot);       // set the new slot, toggle the old slot (to 0)
-            new_bitmap &= ~(1 << (16 + info.slot));  // clean the delete_bitmap,
+            // set the new slot, toggle the old slot (to 0)
+            version.bitmap_ = (version.bitmap_ | (1 << info.slot)) ^ (1 << info.old_slot);
+            // clean the delete_bitmap,
+            version.bitmap_deleted_ &= ~(1 << info.slot);
+
+            // Garbage collection for outdated slot
+            SlotType* old_slot = CellMeta::LocateSlot (cell_addr, info.old_slot);
+            char* old_addr = old_slot->ReleaseAddress ();
+            if (old_addr != nullptr) {
+                free (old_addr);
+            }
         } else {
-            new_bitmap |= (1 << info.slot);          // Insertion: set the new slot
-            new_bitmap &= ~(1 << (16 + info.slot));  // clean the delete_bitmap
+            // Insertion: set the new slot
+            version.bitmap_ |= (1 << info.slot);
+            // clean the delete_bitmap
+            version.bitmap_deleted_ &= ~(1 << info.slot);
         }
 
-        // add a fence here.
-        // Make sure the bitmap is updated after H2
-        // https://www.modernescpp.com/index.php/fences-as-memory-barriers
-        // https://preshing.com/20130922/acquire-and-release-fences/
+        version.seq_no_++;
+
         std::atomic_thread_fence (std::memory_order_release);
-        *bitmap = new_bitmap;
+
+        CellMeta::StoreVersion (cell_addr, version);
     }
 
     inline bool insertSlot (const Key& key, const T& value, size_t hash_value) {
         // Obtain the partial hash
         PartialHash partial_hash (key, hash_value);
-
     after_rehash:
-        // Check if the bucket is locked for rehashing. Wait entil is unlocked.
         BucketMeta* bucket_meta = locateBucket (bucketIndex (partial_hash.bucket_hash_));
 
+#ifndef PIN_KEY_TO_THREAD
+        // Obtain the bucket lock
+        BucketLockScope meta_lock (bucket_meta);
+#else
+        // Check if the bucket is locked for rehashing. Wait entil is unlocked.
         while (bucket_meta->IsRehashLocked ()) {
             TURBO_CPU_RELAX ();
         }
+#endif
 
         FindSlotForInsertResult res = findSlotForInsert (key, partial_hash);
 
         // find a valid slot in target cell
         if (res.find) {
+#ifndef PIN_KEY_TO_THREAD
+            char* bucket_addr = bucket_meta->Address ();
+            char* cell_addr =
+                locateCell (bucket_addr, {res.target_slot.bucket, res.target_slot.cell});
+            insertToSlotAndGC (hash_value, key, value, cell_addr, res.target_slot);
+            return true;
+#else
             // Obtain the bucket lock
             BucketLockScope meta_lock (bucket_meta);
-
             // it is possible after obtain the bucket lock,
-            // the bucket already be rehashed. we need to compare the old address in res with
-            // current one
+            // the bucket already be rehashed. we need to compare the old address in
+            // res with current one
             char* bucket_addr = bucket_meta->Address ();
             if (bucket_addr != res.search_bucket_addr) {
                 goto after_rehash;
@@ -1976,64 +2151,65 @@ private:
             char* cell_addr =
                 locateCell (bucket_addr, {res.target_slot.bucket, res.target_slot.cell});
 
-            CellMeta256V2 meta (cell_addr);  // obtain the meta part after lock
+            CellMeta meta (cell_addr);  // obtain the meta part after lock
 
-            if (TURBO_LIKELY (!meta.Occupy (res.target_slot.slot))) {
-                // If the new slot from 'findSlotForInsert' is not occupied, insert directly
-
-                insertToSlotAndRecycle (hash_value, key, value, cell_addr,
-                                        res.target_slot);  // update slot content (including pointer
-                                                           // and H1), H2 and bitmap
-
-                // TODO: use thread_local variable to improve write performance
-                // if (!res.target_slot.equal_key) {
-                //     size_.fetch_add(1, std::memory_order_relaxed); // size + 1
-                // }
-
+            if TURBO_LIKELY (!meta.Occupy (res.target_slot.slot) ||
+                             meta.IsDeleted (res.target_slot.slot)) {
+                // If the new slot from 'findSlotForInsert' is not occupied, insert
+                // directly
+                insertToSlotAndGC (hash_value, key, value, cell_addr, res.target_slot, thread_info);
                 return true;
             } else if (res.target_slot.equal_key) {
                 // If this is an update request and the backup slot is occupied,
                 // it means the backup slot has changed in current cell. So we
                 // update the slot location.
-                util::BitSet empty_bitset = meta.EmptyBitSet ();
-                if (TURBO_UNLIKELY (!empty_bitset)) {
+                util::BitSet backup_bitset = meta.BackupBitSet ();
+                if TURBO_UNLIKELY (!backup_bitset) {
                     printf ("Cannot update.\n");
                     exit (1);
                 }
 
-                res.target_slot.slot = *empty_bitset;
-                insertToSlotAndRecycle (hash_value, key, value, cell_addr, res.target_slot);
+                res.target_slot.slot = *backup_bitset;
+                insertToSlotAndGC (hash_value, key, value, cell_addr, res.target_slot, thread_info);
                 return true;
             } else {
                 // current new slot has been occupied by another concurrent thread.
+                auto backup_bitset = meta.BackupBitSet ();
+                auto erased_bitset = meta.EraseBitSet ();
 
-                // Before retry 'findSlotForInsert', find if there is any empty slot for insertion
-                util::BitSet empty_bitset = meta.EmptyBitSet ();
-                if (empty_bitset.validCount () > 1) {
-                    res.target_slot.slot = *empty_bitset;
-                    insertToSlotAndRecycle (hash_value, key, value, cell_addr, res.target_slot);
+                if (erased_bitset.validCount () != 0) {
+                    res.target_slot.slot = *erased_bitset;
+                    insertToSlotAndGC (hash_value, key, value, cell_addr, res.target_slot,
+                                       thread_info);
+                    return true;
+                } else if (backup_bitset.validCount () >= 2) {
+                    res.target_slot.slot = *backup_bitset;
+                    insertToSlotAndGC (hash_value, key, value, cell_addr, res.target_slot,
+                                       thread_info);
                     return true;
                 }
 
-                // Current cell has no empty slot for insertion, we retry 'findSlotForInsert'
-                // This unlikely happens with all previous effort.
-
                 goto after_rehash;
             }
-        } else {  // cannot find a valid slot for insertion, rehash current bucket then retry
-
-            // Obtain the Bucket rehash lock. Otherwise, other thread is already rehashing.
+#endif
+        } else {
+            // cannot find a valid slot for insertion, rehash current bucket
+            // then retry
+#ifndef PIN_KEY_TO_THREAD
+            MinorRehash (res.target_slot.bucket);
+#else
+            // Obtain the Bucket rehash lock. Otherwise, other thread is already
+            // rehashing.
             if (bucket_meta->TryRehashLock ()) {
-                // Obtain the bucket lock, so other thread will not insert during rehashing
+                // Obtain the bucket lock, so other thread will not insert during
+                // rehashing
                 BucketLockScope meta_lock (bucket_meta);
 
-                // PrintAlProbeLen();
                 // minor rehash will change the address part of bucket_meta
                 MinorRehash (res.target_slot.bucket);
                 bucket_meta->RehashUnlock ();
-            } else {
-                // While the other thread is rehashing, we can start from beginning
             }
+#endif
             goto after_rehash;
         }
 
@@ -2046,12 +2222,12 @@ private:
     // For flat key, we can skip this because key is stored in H1
     template <typename T1>
     struct SlotKeyEqual<T1, true> {
-        bool operator() (const Key& key, value_type* record_ptr) { return true; }
+        bool operator() (const Key& key, SlotType* record_ptr) { return true; }
     };
 
     template <typename T1>
     struct SlotKeyEqual<T1, false> : public WrapKeyEqual<KeyEqual> {
-        bool operator() (const Key& key, value_type* record_ptr) {
+        bool operator() (const Key& key, SlotType* record_ptr) {
             return WKeyEqual::operator() (key, record_ptr->compareKey ());
         }
     };
@@ -2065,44 +2241,43 @@ private:
     /** findSlotForInsert
      *  @note:  Find a valid slot for insertion.
      *  @out:   first: the slot info that should insert the key
-     *          second:  whether we can find a valid (empty or belong to the same key) slot for
-     * insertion ! We cannot insert if the second is false.
+     *          second:  whether we can find a valid (empty or belong to the same
+     * key) slot for insertion ! We cannot insert if the second is false.
      */
     inline FindSlotForInsertResult findSlotForInsert (const Key& key, PartialHash& partial_hash) {
         uint32_t bucket_i = bucketIndex (partial_hash.bucket_hash_);
+        auto h2_hash_vec = CellMeta::SetHashVec (partial_hash.H2_);
         int64_t cell_to_insert = -1;
         uint8_t slot_to_insert = 0;
         BucketMeta* bucket_meta = locateBucket (bucket_i);
         char* search_bucket_addr = bucket_meta->Address ();
+
         ProbeWithinBucket probe (H1ToHash (partial_hash.H1_), bucket_meta->CellCountMask (),
                                  bucket_i);
-
         int probe_count = 0;  // limit probe times
         while (probe && (probe_count++ < ProbeWithinBucket::MAX_PROBE_LEN)) {
             // Go to target cell
             auto offset = probe.offset ();
             char* cell_addr = locateCell (search_bucket_addr, offset);
-            CellMeta256V2 meta (cell_addr);
 
-            for (int i : meta.MatchBitSet (
-                     partial_hash.H2_)) {  // if there is any H2 match in this cell (SIMD)
-                                           // i is the slot index in current cell
+        find_for_insert_retry:
+            CellMeta meta (cell_addr);
+            for (int i : meta.MatchBitSet (h2_hash_vec)) {
                 // locate the slot reference
-                HashSlot* slot = locateSlot (cell_addr, i);
-
-                if (TURBO_LIKELY (slot->H1 ==
-                                  partial_hash.H1_))  // compare if the H1 partial hash is equal
-                {
-                    // Obtain record pointer
-                    value_type* record = (value_type*)(slot);
-
-                    if (SlotKeyEqual<Key, is_key_flat>{}(key, record)) {
+                SlotType* slot = CellMeta::LocateSlot (cell_addr, i);
+                if TURBO_LIKELY (slot->H1 == partial_hash.H1_) {
+                    if (SlotKeyEqual<Key, is_key_flat>{}(key, slot)) {
                         // This is an update request
-                        util::BitSet empty_bitset = meta.EmptyBitSet ();
+                        util::BitSet backup_bitset = meta.BackupBitSet ();
+                        auto version = CellMeta::LoadVersion (cell_addr);
+                        auto old_version = meta.GetVersion ();
+                        if (old_version.seq_no_ + 1 < version.seq_no_) {
+                            goto find_for_insert_retry;
+                        }
                         return {{
                                     offset.first,     /* bucket */
                                     offset.second,    /* cell */
-                                    *empty_bitset,    /* new slot */
+                                    *backup_bitset,   /* new slot */
                                     partial_hash.H1_, /* H1 */
                                     partial_hash.H2_, /* H2 */
                                     true,             /* equal_key */
@@ -2114,22 +2289,33 @@ private:
                 }
             }
 
-            // If there is more than one empty slot, this cell can accept insertion
-            util::BitSet empty_bitset = meta.EmptyBitSet ();
-            if (empty_bitset.validCount () > 1) {
+            // choose deleted position first
+            auto erase_bitset = meta.EraseBitSet ();
+            auto backup_bitset = meta.BackupBitSet ();
+            if (erase_bitset.validCount () != 0) {
                 cell_to_insert = offset.second;
-                slot_to_insert = *empty_bitset;
+                slot_to_insert = *erase_bitset;
             }
 
             // Reach to the search path end
             if (!meta.Full ()) {
-                // return an empty slot for new insertion
+                if (cell_to_insert == -1) {
+                    cell_to_insert = offset.second;
+                    slot_to_insert = *backup_bitset;
+                }
+                auto version = CellMeta::LoadVersion (cell_addr);
+                auto old_version = meta.GetVersion ();
+                if (old_version.seq_no_ + 1 < version.seq_no_) {
+                    goto find_for_insert_retry;
+                }
+                // return an empty slot or deleted slot for new insertion
                 return {{
-                            offset.first,                    /* bucket */
-                            offset.second,                   /* cell */
-                            *empty_bitset, partial_hash.H1_, /* H1 */
-                            partial_hash.H2_,                /* H2 */
-                            false                            /* equal_key */
+                            bucket_i,                 /* bucket */
+                            (uint32_t)cell_to_insert, /* cell */
+                            slot_to_insert,           /* slot */
+                            partial_hash.H1_,         /* H1 */
+                            partial_hash.H2_,         /* H2 */
+                            false                     /* equal_key */
                         },
                         search_bucket_addr,
                         true};
@@ -2154,13 +2340,15 @@ private:
     }
 
     struct FindSlotResult {
-        HashSlot* target_slot;
+        SlotType* record;
         bool find;
     };
 
+    // Based on version retry lock-free read.
     inline FindSlotResult findSlot (const Key& key, size_t hash_value) {
         PartialHash partial_hash (key, hash_value);
         uint32_t bucket_i = bucketIndex (partial_hash.bucket_hash_);
+        auto h2_hash_vec = CellMeta::SetHashVec (partial_hash.H2_);
         BucketMeta* bucket_meta = locateBucket (bucket_i);
         char* search_bucket_addr = bucket_meta->Address ();
         ProbeWithinBucket probe (H1ToHash (partial_hash.H1_), bucket_meta->CellCountMask (),
@@ -2170,28 +2358,28 @@ private:
         while (probe && (probe_count++ < ProbeWithinBucket::MAX_PROBE_LEN)) {
             auto offset = probe.offset ();
             char* cell_addr = locateCell (search_bucket_addr, offset);
-            CellMeta256V2 meta (cell_addr);
 
-            for (int i : meta.MatchBitSet (
-                     partial_hash.H2_)) {  // Locate if there is any H2 match in this cell
-
-                HashSlot* slot = locateSlot (cell_addr, i);  // locate the slot reference
-
-                if (TURBO_LIKELY (slot->H1 ==
-                                  partial_hash.H1_)) {  // Compare if the H1 partial hash is equal.
-
-                    value_type* record = (value_type*)slot;
-
-                    if (SlotKeyEqual<Key, is_key_flat>{}(key, record)) {
-#ifdef TURBO_PRINT_PROBE_DISTANCE
-                        std::cout << probe_count << std::endl;
-#endif
+        find_retry:
+            CellMeta meta (cell_addr);
+            for (int i : meta.MatchBitSet (h2_hash_vec)) {
+                SlotType* slot = CellMeta::LocateSlot (cell_addr, i);  // locate the slot reference
+                if TURBO_LIKELY (slot->H1 == partial_hash.H1_) {
+                    if (SlotKeyEqual<Key, is_key_flat>{}(key, slot)) {
+                        RecordType record = slot->Record ();
+                        auto version = CellMeta::LoadVersion (cell_addr);
+                        auto old_version = meta.GetVersion ();
+                        if (old_version.seq_no_ + 1 < version.seq_no_) {
+                            // if version changed since last read, and the seq_no advances more
+                            // than 1 (which means >= 2 writes), we retry.
+                            goto find_retry;
+                        }
                         return {slot, true};
                     }
                 }
             }
 
-            // If this cell still has more than one empty slot, then it means the key does't exist.
+            // If this cell still has more than one empty slot, then it means the key
+            // does't exist.
             if (!meta.Full ()) {
                 return {nullptr, false};
             }
@@ -2205,15 +2393,18 @@ private:
 
     inline bool deleteSlot (const Key& key, size_t hash_value) {
         PartialHash partial_hash (key, hash_value);
+        uint32_t bucket_i = bucketIndex (partial_hash.bucket_hash_);
+        auto h2_hash_vec = CellMeta::SetHashVec (partial_hash.H2_);
 
     after_rehash:
-        uint32_t bucket_i = bucketIndex (partial_hash.bucket_hash_);
         BucketMeta* bucket_meta = locateBucket (bucket_i);
-        char* search_bucket_addr = bucket_meta->Address ();
 
+#ifdef PIN_KEY_TO_THREAD
         while (bucket_meta->IsRehashLocked ()) {
             TURBO_CPU_RELAX ();
         }
+#endif
+        char* search_bucket_addr = bucket_meta->Address ();
 
         ProbeWithinBucket probe (H1ToHash (partial_hash.H1_), bucket_meta->CellCountMask (),
                                  bucket_i);
@@ -2223,81 +2414,47 @@ private:
             auto offset = probe.offset ();
             char* cell_addr = locateCell (search_bucket_addr, offset);
 
-            CellMeta256V2 meta (cell_addr);
+        delete_retry:
+            CellMeta meta (cell_addr);
+            for (int i : meta.MatchBitSet (h2_hash_vec)) {
+                SlotType* slot = CellMeta::LocateSlot (cell_addr, i);  // locate the slot reference
+                if TURBO_LIKELY (slot->H1 == partial_hash.H1_) {
+                    // Obtain the bucket lock
+                    BucketLockScope meta_lock (bucket_meta);
 
-            for (int i : meta.MatchBitSet (
-                     partial_hash.H2_)) {  // Locate if there is any H2 match in this cell
+                    auto version = CellMeta::LoadVersion (cell_addr);
+                    auto old_version = meta.GetVersion ();
+                    if (old_version.seq_no_ + 1 < version.seq_no_) {
+                        goto delete_retry;
+                    }
 
-                HashSlot* slot = locateSlot (cell_addr, i);  // locate the slot reference
-
-                if (TURBO_LIKELY (slot->H1 ==
-                                  partial_hash.H1_))  // Compare if the H1 partial hash is equal.
-                {
-                    value_type* record = (value_type*)slot;
-
-                    if (SlotKeyEqual<Key, is_key_flat>{}(key, record)) {
+                    if (SlotKeyEqual<Key, is_key_flat>{}(key, slot)) {
                         // If this key exsit, set the deleted bitmap
 
-                        // Obtain the bucket lock
-                        BucketLockScope meta_lock (bucket_meta);
-
                         // it is possible after obtain the bucket lock,
-                        // the bucket has already been rehashed. we need to compare the old address
+                        // the bucket has already been rehashed. we need to compare the old
+                        // address
                         char* bucket_addr = bucket_meta->Address ();
                         if (bucket_addr != search_bucket_addr) {
                             goto after_rehash;
                         }
 
-                        int delete_pos = i;
-
-                        // Three cases before deletion.
-                        // Case 1: An new insert happens before the deletion. This does not change
-                        // the position of the key we want to delete. !Case 2: An update happens
-                        // before the deletion, We need to delete the updated location. Case 3: Same
-                        // deletion happens. It's ok to delete again.
-                        uint32_t valid_and_delete_after_lock =
-                            __atomic_load_n ((uint32_t*)cell_addr, __ATOMIC_ACQUIRE);
-                        uint16_t valid_bitmap =
-                            valid_and_delete_after_lock & CellMeta256V2::BitMapMask;
-
-                        if (valid_bitmap != meta.bitmap_) {
-                            // The bitmap has been changed after lock
-
-                            bool is_delete_key_been_updated = (valid_bitmap & (1 << i)) == 0;
-
-                            if (is_delete_key_been_updated) {
-                                // case 2. find the new delete position
-                                CellMeta256V2 meta_after_lock (cell_addr);
-                                for (int j : meta_after_lock.MatchBitSet (
-                                         partial_hash.H2_)) {  // Locate if there is any H2 match in
-                                                               // this cell
-
-                                    HashSlot* slot =
-                                        locateSlot (cell_addr, j);  // locate the slot reference
-
-                                    if (TURBO_LIKELY (slot->H1 ==
-                                                      partial_hash.H1_))  // Compare if the H1
-                                                                          // partial hash is equal.
-                                    {
-                                        value_type* record = (value_type*)slot;
-
-                                        if (SlotKeyEqual<Key, is_key_flat>{}(key, record)) {
-                                            delete_pos = j;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
+                        // Garbage collection for deleted record
+                        char* old_addr = slot->ReleaseAddress ();
+                        if (old_addr != nullptr) {
+                            free (old_addr);
                         }
 
-                        uint32_t* bitmap = (uint32_t*)cell_addr;
-                        util::AtomicBitOps::BitTestAndSet (bitmap, 16 + delete_pos);
+                        version.bitmap_deleted_ |= (1 << i);
+                        version.seq_no_++;
+                        CellMeta::StoreVersion (cell_addr, version);
                         return true;
                     }
                 }
             }
 
-            // If this cell still has more than one empty slot, then it means the key does't exist.
+            // If this cell still has more than one empty slot, then it means the key
+            // does't exist.
             if (!meta.Full ()) {
                 return false;
             }
@@ -2306,44 +2463,6 @@ private:
         }
 
         return false;
-    }
-
-    inline FindSlotResult probeFirstSlot (const Key& key, size_t hash_value) {
-        PartialHash partial_hash (key, hash_value);
-        uint32_t bucket_i = bucketIndex (partial_hash.bucket_hash_);
-        BucketMeta* bucket_meta = locateBucket (bucket_i);
-        char* search_bucket_addr = bucket_meta->Address ();
-        ProbeWithinBucket probe (H1ToHash (partial_hash.H1_), bucket_meta->CellCountMask (),
-                                 bucket_i);
-
-        int probe_count = 0;  // limit probe times
-        while (probe && (probe_count++ < ProbeWithinBucket::MAX_PROBE_LEN)) {
-            auto offset = probe.offset ();
-            char* cell_addr = locateCell (search_bucket_addr, offset);
-            CellMeta256V2 meta (cell_addr);
-
-            for (int i : meta.MatchBitSet (
-                     partial_hash.H2_)) {  // Locate if there is any H2 match in this cell
-
-                HashSlot* slot = locateSlot (cell_addr, i);  // locate the slot reference
-
-                if (TURBO_LIKELY (slot->H1 ==
-                                  partial_hash.H1_))  // Compare if the H1 partial hash is equal.
-                {
-                    return {slot, true};
-                }
-            }
-
-            // If this cell still has more than one empty slot, then it means the key does't exist.
-            if (!meta.Full ()) {
-                return {nullptr, false};
-            }
-
-            probe.next ();
-        }
-
-        // after all the probe, no key exist
-        return {nullptr, false};
     }
 
 private:
@@ -2355,8 +2474,8 @@ private:
     std::atomic<size_t> capacity_;
     std::atomic<size_t> size_;
 
-    static constexpr int kCellSize = CellMeta256V2::CellSize ();
-    static constexpr int kCellSizeLeftShift = CellMeta256V2::CellSizeLeftShift;
+    static constexpr int kCellSize = CellMeta::CellSize ();
+    static constexpr int kCellSizeLeftShift = CellMeta::CellSizeLeftShift;
 };
 
 };  // namespace detail
@@ -2369,6 +2488,6 @@ using unordered_map = detail::TurboHashTable<
     typename std::conditional<std::is_same<Key, std::string>::value == false /* is numeric */,
                               KeyEqual, std::equal_to<util::Slice>>::type,
     kTurboCellCountLimit>;
-};  // end of namespace turbo
+};  // namespace turbo
 
 #endif

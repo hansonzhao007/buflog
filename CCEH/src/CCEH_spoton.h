@@ -14,10 +14,6 @@
 
 #define TOID_ARRAY(x) TOID (x)
 
-// #define INPLACE
-// #define WITHOUT_FLUSH
-// #define CONFIG_OUT_OF_PLACE_MERGE
-
 typedef size_t Key_t;
 typedef const char* Value_t;
 

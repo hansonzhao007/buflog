@@ -351,17 +351,17 @@ public:
     ~RandomKeyTrace () {}
 
     void Randomize (void) {
-        printf ("randomize %lu keys\n", keys_.size ());
-        auto starttime = std::chrono::system_clock::now ();
+        // printf ("randomize %lu keys\n", keys_.size ());
+        // auto starttime = std::chrono::system_clock::now ();
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, keys_.size ()),
                            [&] (const tbb::blocked_range<uint64_t>& range) {
                                auto rng = std::default_random_engine{};
                                std::shuffle (keys_.begin () + range.begin (),
                                              keys_.begin () + range.end (), rng);
                            });
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
-            std::chrono::system_clock::now () - starttime);
-        printf ("randomize duration %f s.\n", duration.count () / 1000000.0);
+        // auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
+        //     std::chrono::system_clock::now () - starttime);
+        // printf ("randomize duration %f s.\n", duration.count () / 1000000.0);
     }
 
     class RangeIterator {
