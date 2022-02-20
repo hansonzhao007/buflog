@@ -18,6 +18,7 @@ namespace spoton {
 class logptr_t {
 private:
     static inline uint64_t kEmptyLogPtr{0xFFFF'0000'0000'0000};
+
     static inline std::array<char*, 64> kLogBaseAddress{};
 
     // MSB
@@ -172,12 +173,42 @@ static_assert (sizeof (LogNode_t) == 16, "size of LogNode_t is not 16 byte");
  *
  */
 class Log_t {
-private:
-    uint16_t log_id_;
-    size_t log_size_;
+public:
+    uint16_t log_id_;  // log id (unique)
+    size_t log_size_;  // reserved log size
     size_t log_size_mask_;
-    char* log_start_addr_;
-    std::atomic<size_t> log_tail_;
+    char* log_start_addr_;          // start address of the log
+    std::atomic<size_t> log_tail_;  // current tail of the log
+
+    // each thread has its own log
+    static thread_local Log_t* thread_local_log;
+
+    // monotonic increased log id
+    static std::atomic<uint16_t> global_log_id;
+
+public:
+    /**
+     * @brief Register thread local log. Caller should use provide the pmem base addr
+     *
+     * @param addr Pmem base address provided by caller
+     * @param sz size of the log
+     */
+    static void RegisterThreadLocalLog (char* addr, size_t sz);
+
+    /**
+     * @brief Reopen the pmem log
+     *
+     * @param logid
+     * @param addr
+     */
+    static void OpenThreadLocalLog (uint16_t logid, char* addr);
+
+    /**
+     * @brief Get the Thread Local Log object
+     *
+     * @return Log_t*
+     */
+    static Log_t* GetThreadLocalLog () { return thread_local_log; }
 
 public:
     Log_t ();

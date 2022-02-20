@@ -1548,7 +1548,7 @@ public:
             H2Tag H2 = *CellMeta::LocateH2Tag (cell_addr, slot_index);
             return {{bi_ /* ignore bucket index */, cell_i_ /* cell index */,
                      *bitmap_ /* slot index*/, static_cast<H1Tag> (slot->H1), H2, false, 0},
-                    *slot};
+                    {*slot}};
         }
 
         inline bool valid () { return cell_i_ < cell_count_ && (bitmap_ ? true : false); }
@@ -1989,7 +1989,6 @@ public:
         BucketMeta* bucket_meta = locateBucket (bucket_i);
         char* search_bucket_addr = bucket_meta->Address ();
         ProbeWithinBucket probe (0, bucket_meta->CellCountMask (), bucket_i);
-        uint32_t i = 0;
         int count_sum = 0;
         size_t probe_sum = 0;
         size_t cur_probe = 0;
@@ -2365,7 +2364,6 @@ private:
                 SlotType* slot = CellMeta::LocateSlot (cell_addr, i);  // locate the slot reference
                 if TURBO_LIKELY (slot->H1 == partial_hash.H1_) {
                     if (SlotKeyEqual<Key, is_key_flat>{}(key, slot)) {
-                        RecordType record = slot->Record ();
                         auto version = CellMeta::LoadVersion (cell_addr);
                         auto old_version = meta.GetVersion ();
                         if (old_version.seq_no_ + 1 < version.seq_no_) {

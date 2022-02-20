@@ -103,7 +103,6 @@ private:
     pptr<char> datalog_addr_;
 
 public:
-    // inline static buflog::linkedredolog::DataLog datalog_;
     inline static turbo::unordered_map<size_t, char*>
         bufnode_table_;  // dram table to record bufnode
 
@@ -728,8 +727,9 @@ public:
             page* root = new (buf) page (hdr.level, false);
             page* sibling = root;
             sibling->hdr.hkey = hdr.hkey;
+#ifdef CONFIG_DRAM_INNER
             page* sibling_dram = nullptr;
-
+#endif
             int m = (int)ceil (num_entries / 2);
             entry_key_t split_key = records[m].key;
 
@@ -1440,8 +1440,8 @@ char* btree::btree_search (entry_key_t key) {
         }
     }
 
-    spoton::SortedBufNode_t* bufnode = nullptr;
 #ifdef CONFIG_BUFNODE
+    spoton::SortedBufNode_t* bufnode = nullptr;
     // !buflog: check the bufnode first if we can find one.
     auto iter = btree::bufnode_table_.Find (size_t (p));
     if (iter != nullptr) {
@@ -1455,8 +1455,8 @@ char* btree::btree_search (entry_key_t key) {
 #endif
 
     if (!t) {
-        BUFLOG_INFO ("NOT FOUND key %lu at leafnode 0x%lx and its bufnode 0x%lx. %s\n", key, p,
-                     bufnode, bufnode ? bufnode->ToString ().c_str () : "");
+        // BUFLOG_INFO ("NOT FOUND key %lu at leafnode 0x%lx and its bufnode 0x%lx. %s\n", key, p,
+        //              bufnode, bufnode ? bufnode->ToString ().c_str () : "");
         return nullptr;
     }
 
@@ -1593,8 +1593,7 @@ void btree::btree_insert (entry_key_t key, char* right) {  // need to be string
             p = p->hdr.GetSiblingPtr ();
             goto retry_bufinsert;
         }
-        page* tmp = left_most_leafnode_;
-        BUFLOG_INFO ("Insert key %ld to first leafnode 0x%lx, current leafnode 0x%lx", key, tmp, p);
+
         if (!p->store (parent, pi, this, nullptr, key, right, false, false, nullptr, nullptr)) {
             p->hdr.mtx.unlock ();
             btree_insert (key, right);

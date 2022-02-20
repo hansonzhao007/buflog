@@ -1818,8 +1818,9 @@ size_t InlineSkipList<Comparator>::Compact (Node* node /* bufnode */, Node* next
 #endif
         }
         addr += prefix + sizeof (Node) + sizeof (NodeMeta) + sizeof (size_t);
-
+#ifdef CONFIG_DRAM_INNER
         bool is_new_node_dram = new_node->isDramNode ();
+#endif
         // link this node with previous node
         if (i != 0) {
             int link_height = std::min (cur_height, node_h);

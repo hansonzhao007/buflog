@@ -1,26 +1,57 @@
 #include "spoton_log.h"
 
+#include "logger.h"
+
 namespace spoton {
+
+thread_local Log_t* Log_t::thread_local_log{nullptr};
+std::atomic<uint16_t> Log_t::global_log_id{0};
+
+void Log_t::RegisterThreadLocalLog (char* addr, size_t sz) {
+    // obtain unique log id
+    uint16_t cur_log_id = global_log_id.fetch_add (1);
+
+    thread_local_log = new Log_t ();
+    bool res = thread_local_log->Create (cur_log_id, addr, sz);
+    if (!res) {
+        perror ("Register log fail");
+        exit (1);
+    }
+
+    DEBUG ("Register local log 0x%lx. logid: %2u, size: %lu", thread_local_log, cur_log_id, sz);
+}
+
+void Log_t::OpenThreadLocalLog (uint16_t logid, char* addr) {
+    // reset the global logid
+    global_log_id = std::max (global_log_id.load (), logid);
+
+    thread_local_log = new Log_t ();
+    thread_local_log->Open (logid, addr);
+
+    DEBUG ("Open local log 0x%lx. logid: %2u, size: %lu", thread_local_log, logid,
+           thread_local_log->log_size_);
+}
 
 Log_t::Log_t ()
     : log_size_ (0), log_size_mask_ (0), log_start_addr_ (nullptr), log_tail_ (kLogMetaOffset) {}
 
 bool Log_t::Create (uint16_t logid, char* addr, size_t size) {
-    if (!isPowerOfTwo (size)) {
-        perror ("Data log is not power of 2.");
-        return false;
-    }
+    // if (!isPowerOfTwo (size)) {
+    //     perror ("Data log is not power of 2.");
+    //     return false;
+    // }
     if (addr == nullptr) {
         return false;
     }
 
+    // register the [logid -> pmem base address] mapping
     logptr_t::RegistertBaseAddress (logid, addr);
 
     log_id_ = logid;
     log_size_ = size;
     log_size_mask_ = size - 1;
     log_start_addr_ = addr;
-    log_tail_ = kLogMetaOffset;
+    log_tail_ = kLogMetaOffset;  // initial offset start from kLogMetaOffset
 
     auto* meta = reinterpret_cast<PmemLogMeta_t*> (addr);
     meta->size_ = size;
@@ -38,6 +69,7 @@ void Log_t::Open (uint16_t logid, char* addr) {
     log_size_mask_ = log_size_ - 1;
     log_start_addr_ = addr;
     log_tail_ = meta->tail_;
+    DEBUG ("Recover log tail %lu", meta->tail_);
 }
 
 void Log_t::CommitTail () {
@@ -103,8 +135,8 @@ logptr_t Log_t::Append (LogNodeType_t type, size_t key, size_t val, logptr_t ptr
     auto* log_node = reinterpret_cast<LogNode_t*> (cur_addr);
     log_node->SetData (type, key, val, ptr);
 
-    // flush the log node
-    SPOTON_CLFLUSH (cur_addr, total_size);
+    // flush the log node (sync flushing each log record really compromises performance)
+    // SPOTON_FLUSH (cur_addr);
 
     return logptr_t{log_id_, cur_off};
 }

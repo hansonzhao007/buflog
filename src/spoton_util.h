@@ -19,6 +19,7 @@ inline void SPOTON_CLFLUSH (char* data, int len) {
     for (; ptr < data + len; ptr += 64) {
         _mm_clwb ((void*)ptr);
     }
+    _mm_sfence ();
 }
 
 namespace spoton {
