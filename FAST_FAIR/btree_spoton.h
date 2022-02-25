@@ -1551,11 +1551,11 @@ void btree::btree_insert (entry_key_t key, char* right) {  // need to be string
                         "Insert key %ld to leafnode 0x%lx (hkey: %ld, immu: %ld)'s bufnode 0x%lx "
                         "(highkey: %ld)",
                         key, p, p->hdr.hkey, p->hdr.immutable, bufnode, bufnode->highkey_);
-#ifdef CONFIG_APPEND_TO_LOG_TEST
+#ifdef CONFIG_LOG
                     // !buflog: append to log
-                    BUFLOG_INFO ("append to log tail: %ld", bufnode->next_);
-                    bufnode->next_ = datalog_.Append (buflog::kDataLogNodeValid, key, (size_t)right,
-                                                      bufnode->next_, true);
+                    auto* log_ptr = spoton::Log_t::GetThreadLocalLog ();
+                    log_ptr->Append (spoton::kLogNodeValid, key, (size_t)right,
+                                     spoton::logptr_nullptr);
 #endif
                     bufnode->Unlock ();
                     return;

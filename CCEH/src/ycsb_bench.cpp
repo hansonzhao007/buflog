@@ -36,7 +36,7 @@ DEFINE_uint32 (batch, 1000000, "report batch");
 DEFINE_uint32 (readtime, 0, "if 0, then we read all keys");
 DEFINE_uint32 (thread, 1, "");
 DEFINE_uint64 (report_interval, 0, "Report interval in seconds");
-DEFINE_uint64 (stats_interval, 10000000, "Report interval in ops");
+DEFINE_uint64 (stats_interval, 100000000, "Report interval in ops");
 DEFINE_uint64 (value_size, 8, "The value size");
 DEFINE_uint64 (num, 1 * 1000000LU, "Number of total record");
 DEFINE_uint64 (read, 1 * 1000000, "Number of read operations");

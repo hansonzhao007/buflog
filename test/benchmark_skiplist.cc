@@ -18,6 +18,8 @@
 #include <thread>  // std::thread
 #include <vector>
 
+#include "spoton_log.h"
+
 #ifdef SPOTON
 #include "Skiplist/inlineskiplist_spoton.h"
 #else
@@ -48,6 +50,46 @@ DEFINE_string (benchmarks, "load,readall", "");
 
 using namespace util;
 
+size_t kLogSize = 10 * 1024 * 1024 * 1024LU;  // 10G
+struct LogRoot {
+    size_t num;
+    PMEMoid log_addrs[64];
+};
+LogRoot* log_root;
+PMEMobjpool* log_pop;
+
+void CreateLogFile () {
+    // create log for each threads
+
+    std::string filepath = "/mnt/pmem/testlog";
+    remove (filepath.c_str ());
+
+    log_pop = pmemobj_create (filepath.c_str (), POBJ_LAYOUT_NAME (log), kLogSize * 1.2, 0666);
+    if (log_pop == nullptr) {
+        std::cerr << "create log file fail. " << filepath << std::endl;
+        exit (1);
+    }
+
+    PMEMoid g_root = pmemobj_root (log_pop, sizeof (LogRoot));
+    log_root = reinterpret_cast<LogRoot*> (pmemobj_direct (g_root));
+
+    size_t log_size = kLogSize / FLAGS_thread;
+    for (int i = 0; i < FLAGS_thread; i++) {
+        int ret = pmemobj_alloc (log_pop, &log_root->log_addrs[i], log_size, 0, NULL, NULL);
+        if (ret) {
+            printf ("alloc error for log");
+            exit (1);
+        }
+        // void* log_base_addr = pmemobj_direct (log_root->log_addrs[i]);
+        // pmemobj_memset_persist (log_pop, log_base_addr, 0, log_size);
+        // _mm_sfence ();
+    }
+}
+
+void RegisterLog (int id, size_t log_size) {
+    void* log_base_addr = pmemobj_direct (log_root->log_addrs[id]);
+    spoton::Log_t::RegisterThreadLocalLog ((char*)(log_base_addr), log_size);
+}
 namespace {
 
 // Our test skip list stores 8-byte unsigned integers
@@ -463,6 +505,7 @@ public:
                 skiplist_ = SkipList::CreateSkiplist (TestComparator ());
             }
 
+            CreateLogFile ();
             IPMWatcher watcher (name);
             if (method != nullptr) RunBenchmark (thread, name, method, print_hist);
         }
@@ -835,6 +878,9 @@ private:
                 shared->cv.wait (lck);
             }
         }
+
+        // Register log for each thread
+        RegisterLog (thread->tid, kLogSize / FLAGS_thread);
 
         thread->stats.Start ();
         (arg->bm->*(arg->method)) (thread);

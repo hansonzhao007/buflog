@@ -1194,6 +1194,11 @@ retry:
             }
 
             bool res = bufnode->buf.Insert (key_decoded);
+#ifdef CONFIG_LOG
+            auto* log_ptr = spoton::Log_t::GetThreadLocalLog ();
+            log_ptr->Append (spoton::kLogNodeValid, key_decoded, key_decoded,
+                             spoton::logptr_nullptr);
+#endif
             if (res) {
                 DEBUG ("BufInsert key %d inserted", key_decoded);
                 bufnode->buf.Unlock ();

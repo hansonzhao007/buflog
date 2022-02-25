@@ -4,17 +4,17 @@ db_test(test_skiplist)
 
 # CONFIG_BUFNODE CONFIG_DRAM_INNER CONFIG_OUT_OF_PLACE_MERGE
 
-db_exe(benchmark_cceh bench_cceh_spoton_buf SPOTON CONFIG_BUFNODE)
-db_exe(benchmark_cceh bench_cceh_spoton_buf_otp SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE)
+db_exe(benchmark_cceh bench_cceh_spoton_buf SPOTON CONFIG_BUFNODE CONFIG_LOG)
+db_exe(benchmark_cceh bench_cceh_spoton_buf_otp SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE CONFIG_LOG)
 
 db_exe(benchmark_fastfair bench_fastfair PMEM)
-db_exe(benchmark_fastfair bench_fastfair_spoton_buf SPOTON CONFIG_BUFNODE)
-db_exe(benchmark_fastfair bench_fastfair_spoton_buf_otp SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE)
-db_exe(benchmark_fastfair bench_fastfair_spoton_buf_otp_di SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE CONFIG_DRAM_INNER)
+db_exe(benchmark_fastfair bench_fastfair_spoton_buf SPOTON CONFIG_BUFNODE CONFIG_LOG)
+db_exe(benchmark_fastfair bench_fastfair_spoton_buf_otp SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE CONFIG_LOG)
+db_exe(benchmark_fastfair bench_fastfair_spoton_buf_otp_di SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE CONFIG_DRAM_INNER CONFIG_LOG)
 
 db_exe(benchmark_skiplist bench_skiplist PMEM)
-db_exe(benchmark_skiplist bench_skiplist_spoton_buf_otp SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE)
-db_exe(benchmark_skiplist bench_skiplist_spoton_buf_otp_di SPOTON CONFIG_BUFNODE CONFIG_DRAM_INNER CONFIG_OUT_OF_PLACE_MERGE)
+db_exe(benchmark_skiplist bench_skiplist_spoton_buf_otp SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE CONFIG_LOG)
+db_exe(benchmark_skiplist bench_skiplist_spoton_buf_otp_di SPOTON CONFIG_BUFNODE CONFIG_DRAM_INNER CONFIG_OUT_OF_PLACE_MERGE CONFIG_LOG)
 
 db_test(test_spoton_log)
 db_test(test_spoton_log_pmem)
@@ -24,3 +24,5 @@ db_test(test_spoton_bufnode)
 
 db_exe(bench_log)
 db_exe(benchmark_turbo bench_turbo)
+
+db_test(var_hash_test)

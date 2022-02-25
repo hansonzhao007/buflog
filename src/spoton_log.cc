@@ -94,17 +94,21 @@ void LogNode_t::SetData (LogNodeType_t type, const char* data, size_t len, logpt
 }
 
 void LogNode_t::SetData (LogNodeType_t type, uint64_t key, uint64_t val, logptr_t ptr) {
-    this->type_ = type;
-    this->size_ = 16;
-    this->ptr_ = ptr;
-    *reinterpret_cast<uint64_t*> (this->data_) = key;
-    *reinterpret_cast<uint64_t*> (this->data_ + 8) = val;
+    char buf[128];
+    LogNode_t* tmp = reinterpret_cast<LogNode_t*> (buf);
 
+    tmp->type_ = type;
+    tmp->size_ = 16;
+    tmp->ptr_ = ptr;
+    *reinterpret_cast<uint64_t*> (tmp->data_) = key;
+    *reinterpret_cast<uint64_t*> (tmp->data_ + 8) = val;
     // calculate the checksum
-    this->checksum_ = Hasher::hash_string (this->data_, 16);
-
+    tmp->checksum_ = Hasher::hash_string (this->data_, 16);
     // set size after data
-    *reinterpret_cast<uint8_t*> (&this->data_[16]) = 16;
+    *reinterpret_cast<uint8_t*> (&tmp->data_[16]) = 16;
+
+    // copy the data together to me
+    memcpy (this, buf, 33);
 }
 
 logptr_t Log_t::Append (LogNodeType_t type, Slice record, logptr_t ptr) {
@@ -136,7 +140,7 @@ logptr_t Log_t::Append (LogNodeType_t type, size_t key, size_t val, logptr_t ptr
     log_node->SetData (type, key, val, ptr);
 
     // flush the log node (sync flushing each log record really compromises performance)
-    // SPOTON_FLUSH (cur_addr);
+    SPOTON_CLFLUSH (cur_addr, total_size);
 
     return logptr_t{log_id_, cur_off};
 }

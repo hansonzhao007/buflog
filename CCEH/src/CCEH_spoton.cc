@@ -11,6 +11,7 @@
 
 #include "hash.h"
 #include "logger.h"
+#include "spoton_log.h"
 #include "util.h"
 
 // #define CONFIG_OUT_OF_PLACE_MERGE
@@ -238,6 +239,10 @@ retry:
 
     bool res = bufnode->Put (key, (char*)value);
     if (res) {
+#ifdef CONFIG_LOG
+        auto* log_ptr = spoton::Log_t::GetThreadLocalLog ();
+        log_ptr->Append (spoton::kLogNodeValid, key, (size_t)value, spoton::logptr_nullptr);
+#endif
         // successfully insert to bufnode
         bufnode->Unlock ();
     } else {
