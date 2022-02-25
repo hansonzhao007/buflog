@@ -1,12 +1,10 @@
 #include "var_hash.h"
 
 #include <gflags/gflags.h>
+#include <libpmemobj.h>
 
 #include <iostream>
 
-// ralloc
-#include "pptr.hpp"
-#include "ralloc.hpp"
 #include "test_util.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -18,16 +16,17 @@ using namespace spoton;
 DEFINE_uint64 (num, 10 * 1000000LU, "Number of total record");
 DEFINE_double (loadfactor, 0.75, "");
 
-#define kNumCacheLinePerBucket 10
+#define kNumCacheLinePerBucket 8
 
 size_t PMEM_SPACE = 10 * 1024 * 1024 * 1024LU;  // 10G
 
 struct HashRoot {
     size_t num;
-    pptr<char> log_addrs[2];
+    PMEMoid log_addrs[2];
 };
 
 HashRoot* root;
+PMEMobjpool* log_pop;
 
 int main (int argc, char* argv[]) {
     for (int i = 0; i < argc; i++) {
@@ -36,49 +35,42 @@ int main (int argc, char* argv[]) {
     printf ("\n");
     ParseCommandLineFlags (&argc, &argv, true);
 
-    remove ("/mnt/pmem/hashtest_sb");
-    remove ("/mnt/pmem/hashtest_desc");
-    remove ("/mnt/pmem/hashtest_basemd");
-
-    bool res = RP_init ("hashtest", PMEM_SPACE * 1.6);
-    if (res) {
-        root = RP_get_root<HashRoot> (0);
-        int recover_res = RP_recover ();
-        if (recover_res == 1) {
-            printf ("Ralloc Dirty open, recover\n");
-        } else {
-            printf ("Ralloc Clean restart\n");
-        }
-    } else {
-        printf ("Ralloc Clean create\n");
+    std::string filepath = "/mnt/pmem/testhash";
+    remove (filepath.c_str ());
+    log_pop = pmemobj_create (filepath.c_str (), POBJ_LAYOUT_NAME (hash), PMEM_SPACE * 1.6, 0666);
+    if (log_pop == nullptr) {
+        std::cerr << "create log file fail. " << filepath << std::endl;
+        exit (1);
     }
-    void* tmp = RP_malloc (sizeof (HashRoot));
-    RP_set_root (tmp, 0);
 
+    PMEMoid g_root = pmemobj_root (log_pop, sizeof (HashRoot));
+    root = reinterpret_cast<HashRoot*> (pmemobj_direct (g_root));
     size_t log_size = PMEM_SPACE / 2;
     for (int i = 0; i < 2; i++) {
-        char* tmp = static_cast<char*> (RP_malloc (log_size));
-        root->log_addrs[i] = tmp;
-        void* log_base_addr = (root->log_addrs[i]);
-        memset (log_base_addr, 0, log_size);
-        FLUSH (log_base_addr);
-        FLUSHFENCE;
+        int ret = pmemobj_alloc (log_pop, &root->log_addrs[i], log_size, 0, NULL, NULL);
+        if (ret) {
+            printf ("alloc error for log");
+            exit (1);
+        }
+        void* log_base_addr = pmemobj_direct (root->log_addrs[i]);
+        pmemobj_memset_persist (log_pop, log_base_addr, 0, log_size);
+        _mm_sfence ();
     }
 
     size_t kKeyPerBucket = HashTable<kNumCacheLinePerBucket>::KeyPerBucket;
     size_t kBucketCount = FLAGS_num / FLAGS_loadfactor / kKeyPerBucket * 1.05;
-    size_t kInsertPerBucket = kKeyPerBucket * FLAGS_loadfactor;
+    size_t kInsertPerBucket = kKeyPerBucket;
 
     printf ("bucket size: %d\n", sizeof (HashTable<kNumCacheLinePerBucket>::Bucket));
     printf ("key per bucket: %ld\n", kKeyPerBucket);
     printf ("bucket count: %ld\n", kBucketCount);
     printf ("insert per bucket for seq: %d\n", kInsertPerBucket);
 
-    char* addr1 = root->log_addrs[0];
-    HashTable<kNumCacheLinePerBucket> hashtable_rnd (kBucketCount, addr1);
+    HashTable<kNumCacheLinePerBucket> hashtable_rnd (kBucketCount,
+                                                     (char*)pmemobj_direct (root->log_addrs[0]));
 
-    char* addr2 = root->log_addrs[1];
-    HashTable<kNumCacheLinePerBucket> hashtable_seq (kBucketCount, addr2);
+    HashTable<kNumCacheLinePerBucket> hashtable_seq (kBucketCount,
+                                                     (char*)pmemobj_direct (root->log_addrs[1]));
 
     {
         util::IPMWatcher watcher ("random_insert");
