@@ -14,7 +14,7 @@ using GFLAGS_NAMESPACE::SetUsageMessage;
 using namespace spoton;
 
 DEFINE_uint64 (num, 10 * 1000000LU, "Number of total record");
-DEFINE_double (loadfactor, 0.7, "");
+DEFINE_double (loadfactor, 0.8, "");
 
 #ifdef CACHELINE1
 #define kNumCacheLinePerBucket 1
@@ -74,13 +74,14 @@ int main (int argc, char* argv[]) {
     }
 
     size_t kKeyPerBucket = HashTable<kNumCacheLinePerBucket>::KeyPerBucket;
-    size_t kBucketCount = FLAGS_num / FLAGS_loadfactor / kKeyPerBucket * 1.2;
+    size_t kBucketCount = 4 * 1024 * 1024;
+    size_t kDramBucketCount = FLAGS_num / FLAGS_loadfactor / kKeyPerBucket;
     size_t kInsertPerBucket = kKeyPerBucket;
-
-    printf ("bucket size: %d\n", sizeof (HashTable<kNumCacheLinePerBucket>::Bucket));
+    size_t kBucketSize = sizeof (HashTable<kNumCacheLinePerBucket>::Bucket);
+    printf ("bucket size: %d\n", kBucketSize);
     printf ("key per bucket: %ld\n", kKeyPerBucket);
-    printf ("bucket count: %ld\n", kBucketCount);
-    printf ("insert per bucket for seq: %d\n", kInsertPerBucket);
+    printf ("pmem bucket count: %ld\n", kBucketCount);
+    printf ("dram bucket count: %ld\n", kDramBucketCount);
 
     char* log_base_addr = reinterpret_cast<char*> ((size_t) (pmemobj_direct (root->log_addrs[0])) &
                                                    (~0xFFLU));  // aligned to 256 byte
@@ -89,6 +90,9 @@ int main (int argc, char* argv[]) {
     log_base_addr = reinterpret_cast<char*> ((size_t) (pmemobj_direct (root->log_addrs[1])) &
                                              (~0xFFLU));  // aligned to 256 byte
     HashTable<kNumCacheLinePerBucket> hashtable_seq (kBucketCount, log_base_addr);
+
+    log_base_addr = reinterpret_cast<char*> (aligned_alloc (256, 10LU * 1024 * 1024 * 1024LU));
+    HashTable<kNumCacheLinePerBucket> hashtable_dram (kDramBucketCount, log_base_addr);
 
     pmem_drain ();
 
@@ -129,7 +133,7 @@ int main (int argc, char* argv[]) {
         size_t fail = 0;
         while (i < FLAGS_num) {
             for (int r = 0; r < kInsertPerBucket; r++) {
-                bool res = hashtable_seq.insert (i + 1, i++, buckets[bi]);
+                bool res = hashtable_seq.insert (i + 1, i++, buckets[bi], r);
                 if (!res) {
                     fail++;
                 }
@@ -162,12 +166,15 @@ int main (int argc, char* argv[]) {
         std::shuffle (buckets.begin (), buckets.end (), g);
 
         size_t bi = 0;
+        size_t fail = 0;
         while (i < FLAGS_num) {
             spoton::HashTable<kNumCacheLinePerBucket>::Bucket tmp;
             memcpy ((void*)&tmp, (void*)hashtable_seq.getBucket (buckets[bi]),
                     sizeof (spoton::HashTable<kNumCacheLinePerBucket>::Bucket));
             for (int r = 0; r < kInsertPerBucket; r++) {
-                tmp.insert (i + 1, i++);
+                if (!tmp.insert2 (i + 1, i++)) {
+                    fail++;
+                }
             }
             hashtable_seq.insert (tmp, buckets[bi]);
             bi++;
@@ -175,8 +182,43 @@ int main (int argc, char* argv[]) {
         pmem_drain ();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
             std::chrono::system_clock::now () - starttime);
-        printf ("throughput: %f Mops/s (load factor: %f, ops: %lu)\n",
-                (double)(i) / duration.count (), (double)i / hashtable_seq.getCapacity (), i);
+        printf ("throughput: %f Mops/s (load factor: %f, ops: %lu). fail: %lu\n",
+                (double)(i) / duration.count (), (double)i / hashtable_seq.getCapacity (), i, fail);
+    }
+
+    {
+        util::IPMWatcher watcher ("random_bufferd");
+
+        std::vector<size_t> buckets (kDramBucketCount);
+        for (int i = 0; i < kDramBucketCount; i++) {
+            buckets[i] = i;
+        }
+        std::random_device rd;
+        std::mt19937 g (rd ());
+        std::shuffle (buckets.begin (), buckets.end (), g);
+
+        // insert to dram buffer
+        size_t fail = 0;
+        auto starttime = std::chrono::system_clock::now ();
+        for (size_t i = 0; i < FLAGS_num; i++) {
+            bool res = hashtable_dram.insert (i + 1, i);
+            if (!res) {
+                fail++;
+            }
+        }
+
+        // flush to pmem
+        for (size_t bi : buckets) {
+            pmem_memcpy_persist (&hashtable_rnd.buckets_[bi], &hashtable_dram.buckets_[bi],
+                                 kBucketSize);
+        }
+
+        pmem_drain ();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
+            std::chrono::system_clock::now () - starttime);
+        printf ("throughput: %f Mops/s (load factor: %f, ops: %lu), fail: %lu\n",
+                (double)(FLAGS_num) / duration.count (),
+                (double)FLAGS_num / hashtable_dram.getCapacity (), FLAGS_num, fail);
     }
 
     return 0;

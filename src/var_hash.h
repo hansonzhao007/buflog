@@ -28,8 +28,25 @@ public:
         bool insert (size_t key, size_t val) {
             for (int i = 0; i < KeyPerBucket; i++) {
                 if (slots[i].key == 0) {
-                    kv_t tmp{key, val};
-                    pmem_memcpy (&slots[i], &tmp, sizeof (kv_t), PMEM_F_MEM_NONTEMPORAL);
+                    slots[i].key = key;
+                    slots[i].val = val;
+                    SPOTON_FLUSH (&slots[i]);
+                    SPOTON_FLUSHFENCE;
+
+                    // kv_t tmp{key, val};
+                    // pmem_memcpy (&slots[i], &tmp, sizeof (kv_t), PMEM_F_MEM_WB);
+
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        bool insert2 (size_t key, size_t val) {
+            for (int i = 0; i < KeyPerBucket; i++) {
+                if (slots[i].key == 0) {
+                    slots[i].key = key;
+                    slots[i].val = val;
                     return true;
                 }
             }
@@ -37,8 +54,14 @@ public:
         }
 
         bool insert (size_t key, size_t val, size_t si) {
-            kv_t tmp{key, val};
-            pmem_memcpy (&slots[si], &tmp, sizeof (kv_t), PMEM_F_MEM_NONTEMPORAL);
+            slots[si].key = key;
+            slots[si].val = val;
+            SPOTON_FLUSH (&slots[si]);
+            SPOTON_FLUSHFENCE;
+
+            // kv_t tmp{key, val};
+            // pmem_memcpy (&slots[si], &tmp, sizeof (kv_t), PMEM_F_MEM_WB);
+
             return true;
         }
     };
@@ -87,13 +110,19 @@ public:
             printf ("not cachline aligned.\n");
             exit (1);
         }
-        pmem_memcpy (&buckets_[idx], &bucket, sizeof (Bucket), PMEM_F_MEM_NONTEMPORAL);
+        pmem_memcpy (&buckets_[idx], &bucket, sizeof (Bucket), PMEM_F_MEM_WB);
+        SPOTON_FLUSHFENCE;
         return true;
     }
 
     bool insert (size_t key, size_t val, size_t bi) {
         size_t idx = bi;
         return buckets_[idx].insert (key, val);
+    }
+
+    bool insert (size_t key, size_t val, size_t bi, size_t si) {
+        size_t idx = bi;
+        return buckets_[idx].insert (key, val, si);
     }
 };
 

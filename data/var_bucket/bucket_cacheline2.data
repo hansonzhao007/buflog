@@ -1,50 +1,65 @@
 ./var_hash_test2 
 bucket size: 128
 key per bucket: 8
-bucket count: 2142857
-insert per bucket for seq: 8
+pmem bucket count: 4194304
+dram bucket count: 1562500
 [32mStart IPMWatcher for random_insert
-[0mthroughput: 2.745258 Mops/s (load factor: 0.583333, ops: 10000000)
+[0mthroughput: 4.234297 Mops/s (load factor: 0.298023, ops: 10000000)
 --------------------------------------------------------------------------------------
 DIMM  | Read from IMC | Write from IMC |   Read DIMM |   Write DIMM |     RA |     WA |
-  0   |       1018.21 |         610.39 |     3390.22 |      2459.19 |   3.33 |   4.03 |
-  1   |          0.02 |           0.01 |        0.20 |         2.83 |   8.62 | 331.49 |
+  0   |        638.25 |         610.36 |     2482.41 |      2458.97 |   3.89 |   4.03 |
+  1   |          0.02 |           0.01 |        0.13 |         1.86 |   5.65 | 217.57 |
 --------------------------------------------------------------------------------------
  SUM:
- DIMM-R:   893.6 MB/s,  3390.4 MB
- User-R:   268.4 MB/s,  1018.2 MB
- DIMM-W:   648.9 MB/s,  2462.0 MB
- User-W:   160.9 MB/s,   610.4 MB
-   Time:     3.8 s
+ DIMM-R:   984.4 MB/s,  2482.5 MB
+ User-R:   253.1 MB/s,   638.3 MB
+ DIMM-W:   975.7 MB/s,  2460.8 MB
+ User-W:   242.0 MB/s,   610.4 MB
+   Time:     2.5 s
 [32mDestroy IPMWatcher.
 [0m
 [32mStart IPMWatcher for seq_insert
-[0mthroughput: 1.368251 Mops/s (load factor: 0.583333, ops: 10000000. fail: 1)
+[0mthroughput: 1.598629 Mops/s (load factor: 0.298023, ops: 10000000. fail: 0)
 --------------------------------------------------------------------------------------
 DIMM  | Read from IMC | Write from IMC |   Read DIMM |   Write DIMM |     RA |     WA |
-  0   |        878.09 |         612.91 |      696.29 |       315.42 |   0.79 |   0.51 |
-  1   |          0.02 |           0.01 |        0.39 |         5.63 |  16.91 | 658.91 |
+  0   |        610.54 |         610.36 |      309.65 |       312.01 |   0.51 |   0.51 |
+  1   |          0.02 |           0.01 |        0.34 |         4.83 |  14.45 | 565.46 |
 --------------------------------------------------------------------------------------
  SUM:
- DIMM-R:    93.4 MB/s,   696.7 MB
- User-R:   117.7 MB/s,   878.1 MB
- DIMM-W:    43.0 MB/s,   321.0 MB
- User-W:    82.2 MB/s,   612.9 MB
-   Time:     7.5 s
+ DIMM-R:    48.3 MB/s,   310.0 MB
+ User-R:    95.2 MB/s,   610.6 MB
+ DIMM-W:    49.4 MB/s,   316.8 MB
+ User-W:    95.2 MB/s,   610.4 MB
+   Time:     6.4 s
 [32mDestroy IPMWatcher.
 [0m
 [32mStart IPMWatcher for seq_insert_batch
-[0mthroughput: 3.963405 Mops/s (load factor: 0.583333, ops: 10000000)
+[0mthroughput: 12.389655 Mops/s (load factor: 0.298023, ops: 10000000). fail: 1
 --------------------------------------------------------------------------------------
 DIMM  | Read from IMC | Write from IMC |   Read DIMM |   Write DIMM |     RA |     WA |
-  0   |        152.95 |         152.60 |      310.77 |       309.39 |   2.03 |   2.03 |
-  1   |          0.02 |           0.01 |        0.17 |         2.01 |   7.24 | 234.97 |
+  0   |        152.71 |         152.60 |      309.21 |       307.68 |   2.02 |   2.02 |
+  1   |          0.02 |           0.01 |        0.05 |         0.68 |   2.17 |  79.06 |
 --------------------------------------------------------------------------------------
  SUM:
- DIMM-R:   116.2 MB/s,   310.9 MB
- User-R:    57.2 MB/s,   153.0 MB
- DIMM-W:   116.4 MB/s,   311.4 MB
- User-W:    57.0 MB/s,   152.6 MB
-   Time:     2.7 s
+ DIMM-R:   321.5 MB/s,   309.3 MB
+ User-R:   158.8 MB/s,   152.7 MB
+ DIMM-W:   320.5 MB/s,   308.4 MB
+ User-W:   158.6 MB/s,   152.6 MB
+   Time:     1.0 s
+[32mDestroy IPMWatcher.
+[0m
+[32mStart IPMWatcher for random_bufferd
+[0mthroughput: 6.919639 Mops/s (load factor: 0.800000, ops: 10000000), fail: 0
+--------------------------------------------------------------------------------------
+DIMM  | Read from IMC | Write from IMC |   Read DIMM |   Write DIMM |     RA |     WA |
+  0   |        190.76 |         190.74 |      386.44 |       385.05 |   2.03 |   2.02 |
+  1   |          0.02 |           0.01 |        0.08 |         1.18 |   3.54 | 138.63 |
+--------------------------------------------------------------------------------------
+ SUM:
+ DIMM-R:   236.8 MB/s,   386.5 MB
+ User-R:   116.9 MB/s,   190.8 MB
+ DIMM-W:   236.7 MB/s,   386.2 MB
+ User-W:   116.9 MB/s,   190.8 MB
+   Time:     1.6 s
 [32mDestroy IPMWatcher.
 [0m
