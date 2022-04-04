@@ -4,22 +4,58 @@
 namespace spoton {
 
 void BloomFilterFix64::BuildBloomFilter (LeafNode64* leafnode, BloomFilterFix64& bloomfilter) {
+    DEBUG ("Build bloomfilter for leaf 0x%lx [%lu, %lu)", leafnode, leafnode->lkey, leafnode->hkey);
     bloomfilter.reset ();
     for (int i : leafnode->ValidBitSet ()) {
-        bloomfilter.set (&leafnode->slots[i].key, 8);
+        char buffer[8];
+        memcpy (buffer, &leafnode->slots[i].key, 8);
+        bloomfilter.set (buffer, 8);
     }
 }
 
-bool MLNode::Insert (key_t key, val_t val) {
-    // set the bloomfilter
-    bloomfilter.set (&key, 8);
-    // return false if cannot insert or update
-    return leafNode->Insert (key, val);
+void BloomFilterFix64::set (key_t key) {
+    char buffer[8];
+    *reinterpret_cast<uint64_t*> (buffer) = key;
+    set (buffer, 8);
 }
 
-bool MLNode::Remove (key_t key) {
-    // return false if cannot insert or update
-    return leafNode->Remove (key);
+void BloomFilterFix64::set (const void* addr, size_t len) {
+    auto hashes = XXH3_128bits (addr, len);
+    size_t hash1 = hashes.high64;
+    size_t hash2 = hashes.low64;
+
+    size_t pos[4];
+    pos[0] = (hash1 >> 32) & 511;
+    pos[1] = hash1 & 511;
+    pos[2] = (hash2 >> 32) & 511;
+    pos[3] = hash2 & 511;
+
+    for (int i = 0; i < 4; i++) {
+        setBitPos (pos[i]);
+    }
+}
+
+bool BloomFilterFix64::couldExist (key_t key) {
+    char buffer[8];
+    *reinterpret_cast<uint64_t*> (buffer) = key;
+    return couldExist (buffer, 8);
+}
+
+bool BloomFilterFix64::couldExist (const void* addr, size_t len) {
+    auto hashes = XXH3_128bits (addr, len);
+    size_t hash1 = hashes.high64;
+    size_t hash2 = hashes.low64;
+
+    size_t pos[4];
+    pos[0] = (hash1 >> 32) & 511;
+    pos[1] = hash1 & 511;
+    pos[2] = (hash2 >> 32) & 511;
+    pos[3] = hash2 & 511;
+
+    for (int i = 0; i < 4; i++) {
+        if (!isBitSet (pos[i])) return false;
+    }
+    return true;
 }
 
 MiddleLayer::MiddleLayer () {
@@ -27,15 +63,20 @@ MiddleLayer::MiddleLayer () {
     auto dummyTail = new MLNode ();
 
     head->lkey = 0;
-    head->hkey = ULLONG_MAX;
+    head->hkey = UINT64_MAX;
 
     head->prev = nullptr;
     head->next = dummyTail;
 
-    dummyTail->lkey = ULLONG_MAX;
-    dummyTail->hkey = ULLONG_MAX;
+    dummyTail->lkey = UINT64_MAX;
+    dummyTail->hkey = UINT64_MAX;
     dummyTail->prev = head;
     dummyTail->next = nullptr;
+}
+
+void MiddleLayer::SetBloomFilter (key_t key, MLNode* mnode) {
+    // set bloom filter for key
+    mnode->bloomfilter.set (key);
 }
 
 MLNode* MiddleLayer::FindTargetMLNode (key_t key, MLNode* mnode) {

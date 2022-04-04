@@ -16,6 +16,8 @@ db_exe(benchmark_skiplist bench_skiplist PMEM)
 db_exe(benchmark_skiplist bench_skiplist_spoton_buf_otp SPOTON CONFIG_BUFNODE CONFIG_OUT_OF_PLACE_MERGE CONFIG_LOG)
 db_exe(benchmark_skiplist bench_skiplist_spoton_buf_otp_di SPOTON CONFIG_BUFNODE CONFIG_DRAM_INNER CONFIG_OUT_OF_PLACE_MERGE CONFIG_LOG)
 
+db_exe(benchmark_sptree bench_sptree)
+
 db_test(test_spoton_log)
 db_exe(test_spoton_log_pmem)
 db_test(test_spoton_bufnode)
@@ -23,6 +25,7 @@ db_test(test_spoton_bufnode)
 db_test(test_bloomfilter)
 db_test(test_sptree_layer)
 db_test(test_sptree)
+db_exe(sptree_example)
 # db_test(test_spoton_hashbuf)
 
 

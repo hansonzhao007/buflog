@@ -113,21 +113,6 @@ TEST (BottomLayer, UnSort) {
         ASSERT_FALSE (prev < slot.key);
         prev = slot.key;
     }
-
-    LeafNode32 leafnode32;
-
-    for (size_t i = 0; i < 32; i++) {
-        ASSERT_TRUE (leafnode32.Insert (1000 - i, i));
-    }
-
-    ASSERT_TRUE (leafnode32.Full ());
-
-    prev = 10000;
-    for (int i = 0; i < 32; i++) {
-        auto& slot = leafnode32.slots[i];
-        ASSERT_FALSE (prev < slot.key);
-        prev = slot.key;
-    }
 };
 
 TEST (BottomLayer, Sort) {
@@ -177,22 +162,22 @@ TEST (BottomLayer, Split) {
     BloomFilterFix64 bloomfilter;
     BloomFilterFix64::BuildBloomFilter (&leafnode, bloomfilter);
     for (size_t i = 0; i < 32; i++) {
-        bool res = bloomfilter.couldExist (&i, 8);
+        bool res = bloomfilter.couldExist (i);
         ASSERT_TRUE (res);
     }
     for (size_t i = 32; i <= 64; i++) {
-        bool res = bloomfilter.couldExist (&i, 8);
+        bool res = bloomfilter.couldExist (i);
         ASSERT_FALSE (res);
     }
 
     BloomFilterFix64::BuildBloomFilter (new_leaf_node, bloomfilter);
     for (size_t i = 0; i < 32; i++) {
-        bool res = bloomfilter.couldExist (&i, 8);
+        bool res = bloomfilter.couldExist (i);
         ASSERT_FALSE (res);
     }
 
     for (size_t i = 32; i <= 64; i++) {
-        bool res = bloomfilter.couldExist (&i, 8);
+        bool res = bloomfilter.couldExist (i);
         ASSERT_TRUE (res);
     }
 };

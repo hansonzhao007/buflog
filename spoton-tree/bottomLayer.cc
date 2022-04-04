@@ -5,116 +5,9 @@
 #include <algorithm>
 #include <climits>
 
+#include "logger.h"
 #include "xxhash.h"
 namespace spoton {
-
-bool LeafNode32::Insert (key_t key, val_t val) {
-    // obtain key hash
-    uint64_t hash = XXH3_64bits (&key, 8);
-    uint8_t tag = hash & 0xFF;
-
-    for (int i : MatchBitSet (tag)) {
-        auto& record = this->slots[i];
-        if (record.key == key) {
-            // update
-            record.val = val;
-            return true;
-        }
-    }
-
-    // if reach here, we need to insert to an empty slot
-    if (!Full ()) {
-        for (int i : EmptyBitSet ()) {
-            auto& record = this->slots[i];
-            // 1. set slot
-            record.key = key;
-            record.val = val;
-            // 2. set tag
-            this->tags[i] = tag;
-            // 3. validate bitmap
-            SetValid (i);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool LeafNode32::Remove (key_t key) {
-    // obtain key hash
-    uint64_t hash = XXH3_64bits (&key, 8);
-    uint8_t tag = hash & 0xFF;
-
-    for (int i : MatchBitSet (tag)) {
-        auto& record = this->slots[i];
-        if (record.key == key) {
-            // find key
-            SetErase (i);
-            return true;
-        }
-    }
-    return false;
-}
-
-bool LeafNode32::Lookup (key_t key, val_t& val) {
-    // obtain key hash
-    uint64_t hash = XXH3_64bits (&key, 8);
-    uint8_t tag = hash & 0xFF;
-
-retry:
-    bool needRestart = false;
-    for (int i : MatchBitSet (tag)) {
-        // retry if current node is under writing
-        auto v = lock.readLockOrRestart (needRestart);
-        if (needRestart) goto retry;
-
-        auto& record = this->slots[i];
-        if (record.key == key) {
-            val = record.val;
-            // check version after read
-            lock.checkOrRestart (v, needRestart);
-            if (needRestart) goto retry;
-            return true;
-        }
-    }
-    return false;
-}
-
-struct LeafNode32::SortByKey {
-    SortByKey (LeafNode32* node) : node_ (node) {}
-    bool operator() (const int& a, const int& b) {
-        // sort by slot.key
-        return node_->slots[a].key < node_->slots[b].key;
-    }
-    LeafNode32* node_;
-};
-
-void LeafNode32::Sort () {
-    // step 1: obtain the valid pos
-    std::vector<int> valid_pos;
-    for (int i : ValidBitSet ()) {
-        valid_pos.push_back (i);
-    }
-
-    // step 2: sort the valid_pos according to the related key
-    std::sort (valid_pos.begin (), valid_pos.end (), SortByKey (this));
-
-    // step 3: set the seqs_
-    int si = 0;
-    for (int i : valid_pos) {
-        this->seqs[si++] = i;
-    }
-}
-
-BitSet LeafNode32::MatchBitSet (uint8_t tag) {
-    // passing the tag to vector
-    auto tag_vector = _mm256_set1_epi8 (tag);
-    auto tag_compare = _mm256_loadu_si256 (reinterpret_cast<const __m256i*> (this->tags));
-    auto bitmask = _mm256_cmpeq_epi8_mask (tag_vector, tag_compare);
-    return BitSet (bitmask & this->valid_bitmap);
-}
-
-// -------------- LeafNode64 ----------------
 
 bool LeafNode64::Insert (key_t key, val_t val) {
     // obtain key hash
@@ -269,6 +162,7 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val) {
         this->Insert (key, val);
     }
 
+    // DEBUG ("Split new node 0x%lx, lkey: %lu, hkey: %lu", newNode, newNode->lkey, newNode->hkey);
     return {newNode, median};
 };
 
@@ -285,17 +179,18 @@ LeafNode64* BottomLayer::initialize () {
     LeafNode64* dummyTail = new LeafNode64 ();
 
     head->lkey = 0;
-    head->hkey = ULLONG_MAX;
+    head->hkey = UINT64_MAX;
 
     head->prev = nullptr;
     head->next = dummyTail;
 
-    dummyTail->lkey = ULLONG_MAX;
-    dummyTail->hkey = ULLONG_MAX;
+    dummyTail->lkey = UINT64_MAX;
+    dummyTail->hkey = UINT64_MAX;
 
     dummyTail->prev = head;
     dummyTail->next = nullptr;
 
+    INFO ("Initial first leafnode 0x%lx, lkey: %lu, hkey: %lu", this->head, head->lkey, head->hkey);
     return head;
 }
 

@@ -27,6 +27,7 @@ public:
     TID lookup (key_t key);
     uint64_t scan (key_t startKey, int resultSize, std::vector<TID>& result);
 
+    std::string ToString ();
     // pmem part
 private:
     // locate the target middle layer node and its version, without lock

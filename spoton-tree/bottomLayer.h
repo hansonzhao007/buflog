@@ -17,64 +17,28 @@ namespace spoton {
 using key_t = size_t;
 using val_t = size_t;
 
-class LeafNode {
-public:
-    key_t lkey{0};
-    key_t hkey{0};
-
-    LeafNode* prev{nullptr};
-    LeafNode* next{nullptr};
-
-    RetryVersionLock lock;
-
-public:
-    virtual bool Insert (key_t key, val_t val) = 0;
-    virtual bool Lookup (key_t key, val_t& val) = 0;
-    virtual bool Remove (key_t key) = 0;
-
-public:
-};
-
 struct LeafNodeSlot {
     key_t key;
     val_t val;
 };
 
-class LeafNode32 : public LeafNode {
+class LeafNode64 {
 public:
-    uint32_t valid_bitmap{0};  // 4B
-    uint8_t tags[32];
-    LeafNodeSlot slots[32];
-    uint8_t seqs[32];
+    key_t lkey{0};
+    key_t hkey{0};
 
-public:
-    bool Insert (key_t key, val_t val) override;
-    bool Lookup (key_t key, val_t& val) override;
-    bool Remove (key_t key) override;
-
-    struct SortByKey;
-    void Sort ();
-
-public:
-    BitSet MatchBitSet (uint8_t tag);
-    inline bool Full () { return __builtin_popcount (valid_bitmap) == 32; }
-    inline BitSet ValidBitSet () { return BitSet (valid_bitmap); }
-    inline BitSet EmptyBitSet () { return BitSet (~valid_bitmap); }
-    inline void SetValid (int pos) { valid_bitmap |= (1 << pos); }
-    inline void SetErase (int pos) { valid_bitmap &= ~(1 << pos); }
-};
-
-class LeafNode64 : public LeafNode {
-public:
+    RetryVersionLock lock;
+    LeafNode64* prev{nullptr};
+    LeafNode64* next{nullptr};
     uint64_t valid_bitmap{0};  // 8B
     uint8_t tags[64];
     LeafNodeSlot slots[64];
     uint8_t seqs[64];
 
 public:
-    bool Insert (key_t key, val_t val) override;
-    bool Lookup (key_t key, val_t& val) override;
-    bool Remove (key_t key) override;
+    bool Insert (key_t key, val_t val);
+    bool Lookup (key_t key, val_t& val);
+    bool Remove (key_t key);
 
     struct SortByKey;
     void Sort ();

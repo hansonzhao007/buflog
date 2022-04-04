@@ -6,6 +6,7 @@ SPTree::SPTree () {
     // Initialize the first node in middle layer and bottom layer
     botLayer.initialize ();
     midLayer.head->leafNode = botLayer.head;
+    midLayer.head->next->leafNode = botLayer.head->next;
     topLayer.insert (0, midLayer.head);
 }
 
@@ -52,6 +53,10 @@ retry:
     }
     if (!maybeExist) {
         // does not exist
+        mnode->lock.checkOrRestart (v, needRestart);
+        if (needRestart) {
+            goto retry;
+        }
         return 0;
     }
 
@@ -96,20 +101,21 @@ retry:
 
         // 3b. split the leaf node
         auto [newLeafNode, newlkey] = mnode->leafNode->Split (key, val);
-
+        DEBUG ("split insert %lu", key);
         // 3b. create a mnode for newLeafNode
         MLNode* old_next_mnode = mnode->next;
         MLNode* new_mnode = new MLNode ();
         new_mnode->lkey = newlkey;
-        new_mnode->hkey = newLeafNode->hkey;
+        new_mnode->hkey = mnode->hkey;
         new_mnode->prev = mnode;
         new_mnode->next = mnode->next;
         mnode->next->prev = new_mnode;
         mnode->next = new_mnode;
+        mnode->hkey = newlkey;
         new_mnode->leafNode = newLeafNode;
         // create new_mnode's bloomfilter
         BloomFilterFix64::BuildBloomFilter (newLeafNode, new_mnode->bloomfilter);
-        // rebuild mnode's bloomfilter
+        // rebuild my mnode's bloomfilter
         BloomFilterFix64::BuildBloomFilter (mnode->leafNode, mnode->bloomfilter);
 
         // 3b. insert newlkey->newNode to toplayer
@@ -158,4 +164,32 @@ retry:
     return res;
 }
 
+std::string SPTree::ToString () {
+    std::string res;
+    MLNode* cur = midLayer.head;
+    size_t total_record = 0;
+    while (cur != nullptr) {
+        std::string row;
+        char buffer[1024];
+        int outliar = 0;
+        LeafNode64* leafnode = cur->leafNode;
+        for (int i : leafnode->ValidBitSet ()) {
+            total_record++;
+            auto& slot = leafnode->slots[i];
+            if (slot.key < leafnode->lkey or leafnode->hkey <= slot.key) {
+                outliar++;
+                sprintf (buffer, "[%lu], ", slot.key);
+            } else {
+                sprintf (buffer, "%lu, ", slot.key);
+            }
+            row += buffer;
+        }
+        row += "\n";
+        sprintf (buffer, "=== [%lu, %lu), outlier: %d. ", leafnode->lkey, leafnode->hkey, outliar);
+        res += buffer + row;
+        cur = cur->next;
+    }
+    res += "total: " + std::to_string (total_record) + "\n";
+    return res;
+}
 }  // namespace spoton

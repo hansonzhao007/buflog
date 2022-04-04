@@ -337,7 +337,7 @@ public:
 };
 class RandomKeyTrace {
 public:
-    RandomKeyTrace (size_t count) {
+    RandomKeyTrace (size_t count, bool isSeq = false) {
         count_ = count;
         keys_.resize (count);
 
@@ -346,8 +346,12 @@ public:
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, count),
                            [&] (const tbb::blocked_range<uint64_t>& range) {
                                for (uint64_t i = range.begin (); i != range.end (); i++) {
-                                   uint64_t num = u64Rand (1LU, kRandNumMax);
-                                   keys_[i] = num;
+                                   if (isSeq) {
+                                       keys_[i] = i + 1;
+                                   } else {
+                                       uint64_t num = u64Rand (1LU, kRandNumMax);
+                                       keys_[i] = num;
+                                   }
                                }
                            });
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
