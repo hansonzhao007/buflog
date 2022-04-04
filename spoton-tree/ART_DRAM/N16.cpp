@@ -7,6 +7,27 @@
 
 namespace ART_DRAM {
 
+std::tuple<N*, uint8_t> N16::seekSmaller (uint8_t key) const {
+    for (int i = count - 1; i >= 0; i--) {
+        uint8_t realKey = flipSign (keys[i]);
+        if (realKey <= key) {
+            return {children[i], realKey};
+        }
+    }
+    return {nullptr, 0};
+}
+
+std::tuple<N*, uint8_t> N16::seek (uint8_t key) const {
+    uint8_t keyByteFlipped = flipSign (key);
+    __m128i cmp = _mm_cmpgt_epi8 (_mm_set1_epi8 (keyByteFlipped),
+                                  _mm_loadu_si128 (reinterpret_cast<const __m128i*> (keys)));
+    uint16_t bitfield = _mm_movemask_epi8 (cmp);
+    bitfield = ~bitfield & (0xFFFF >> (16 - count));
+    unsigned pos = bitfield ? ctz (bitfield) : count;
+    if (pos == count) return {nullptr, 0};
+    return {children[pos], flipSign (keys[pos])};
+}
+
 bool N16::isFull () const { return count == 16; }
 
 bool N16::isUnderfull () const { return count == 3; }

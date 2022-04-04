@@ -13,6 +13,7 @@ namespace ART_DRAM {
 class Tree {
 public:
     using LoadKeyFunction = void (*) (TID tid, Key& key);
+    static inline Key kARTMaxKey{};
 
 private:
     N* const root;
@@ -66,8 +67,8 @@ public:
 
     TID lookup (const Key& k, ThreadInfo& threadEpocheInfo) const;
 
-    // return the tid whose key is >= k
-    TID seek (const Key& k, ThreadInfo& threadEpocheInfo) const;
+    // return the tid whose key is <= k, if not exist, return 0
+    TID seekLE (const Key& k, ThreadInfo& threadEpocheInfo) const;
 
     bool lookupRange (const Key& start, const Key& end, Key& continueKey, TID result[],
                       std::size_t resultLen, std::size_t& resultCount,

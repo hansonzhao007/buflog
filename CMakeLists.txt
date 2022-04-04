@@ -91,7 +91,7 @@ link_directories(/usr/lib)
 link_directories(/usr/local/lib)
 link_directories("${PROJECT_SOURCE_DIR}/lib/")
 
-list(APPEND THIRDPARTY_LIBS pmem vmem pmemobj spoton)
+list(APPEND THIRDPARTY_LIBS pmem vmem pmemobj spoton spotontree)
 
 # all the binary will be in the build folder
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
@@ -147,6 +147,6 @@ endfunction(db_exe)
 
 
 # The add_subdirectory will add CMakeLists.txt under src and tests into your project.
-# add_subdirectory(CCEH/src)
 add_subdirectory(src)
 add_subdirectory(test)
+add_subdirectory(spoton-tree)

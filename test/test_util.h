@@ -26,6 +26,15 @@
 
 auto rng = std::default_random_engine{};
 
+static constexpr uint64_t kRandNumMax = (1LU << 60);
+static constexpr uint64_t kRandNumMaxMask = kRandNumMax - 1;
+
+static uint64_t u64Rand (const uint64_t& min, const uint64_t& max) {
+    static thread_local std::mt19937 generator (std::random_device{}());
+    std::uniform_int_distribution<uint64_t> distribution (min, max);
+    return distribution (generator);
+}
+
 namespace util {
 
 // A very simple random number generator.  Not especially good at
@@ -337,8 +346,8 @@ public:
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, count),
                            [&] (const tbb::blocked_range<uint64_t>& range) {
                                for (uint64_t i = range.begin (); i != range.end (); i++) {
-                                   //    uint64_t num = u64Rand (1LU, kRandNumMax);
-                                   keys_[i] = i + 1;
+                                   uint64_t num = u64Rand (1LU, kRandNumMax);
+                                   keys_[i] = num;
                                }
                            });
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (

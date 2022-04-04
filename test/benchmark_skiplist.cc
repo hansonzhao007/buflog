@@ -40,7 +40,7 @@ DEFINE_uint32 (batch, 100000, "report batch");
 DEFINE_uint32 (readtime, 0, "if 0, then we read all keys");
 DEFINE_uint32 (thread, 1, "");
 DEFINE_uint64 (report_interval, 0, "Report interval in seconds");
-DEFINE_uint64 (stats_interval, 10000000, "Report interval in ops");
+DEFINE_uint64 (stats_interval, 20000000, "Report interval in ops");
 DEFINE_uint64 (value_size, 8, "The value size");
 DEFINE_uint64 (num, 5 * 1000000LU, "Number of total record");
 DEFINE_uint64 (read, 0 * 1000000, "Number of read operations");
@@ -74,7 +74,7 @@ void CreateLogFile () {
     log_root = reinterpret_cast<LogRoot*> (pmemobj_direct (g_root));
 
     size_t log_size = kLogSize / FLAGS_thread;
-    for (int i = 0; i < FLAGS_thread; i++) {
+    for (unsigned i = 0; i < FLAGS_thread; i++) {
         int ret = pmemobj_alloc (log_pop, &log_root->log_addrs[i], log_size, 0, NULL, NULL);
         if (ret) {
             printf ("alloc error for log");

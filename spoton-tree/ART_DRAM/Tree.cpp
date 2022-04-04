@@ -76,7 +76,79 @@ restart:
     }
 }
 
-TID Tree::seek (const Key& k, ThreadInfo& threadEpocheInfo) const {}
+// find the first key that is <= start
+TID Tree::seekLE (const Key& start, ThreadInfo& threadEpocheInfo) const {
+    EpocheGuardReadonly epocheGuard (threadEpocheInfo);
+
+restart:
+    bool needRestart = false;
+    uint32_t level = 0;
+    N* node = root;
+    // Do Longest prefix match
+    uint64_t v;
+    PCCompareResults prefixResult;
+    while (1) {
+        if (N::isLeaf (node)) {
+            // We have hit a leaf node
+            // Get the TID and return
+            return N::getLeaf (node);
+        }
+        v = node->readLockOrRestart (needRestart);
+        if (needRestart) goto restart;
+
+        prefixResult = checkPrefixCompare (node, start, 0, level, loadKey, needRestart);
+        if (needRestart) goto restart;
+
+        node->readUnlockOrRestart (v, needRestart);
+        if (needRestart) goto restart;
+
+        if (prefixResult == PCCompareResults::Equal) {
+            uint8_t startLevel = (start.getKeyLen () > level) ? start[level] : 0;
+            N* childNode = N::getChild (startLevel, node);
+            if (childNode == nullptr) break;
+            node = childNode;
+            level++;
+        } else if (prefixResult == PCCompareResults::Bigger) {
+            // node's prefix is larger than 'start`,
+            while (!N::isLeaf (node)) {
+                uint8_t nodeKey;
+                std::tie (node, nodeKey) = N::seek (node, 0);
+            }
+            return N::getLeaf (node);
+        } else if (prefixResult == PCCompareResults::Smaller) {
+            // node's prefix is smaller than `start`, the right most leaf is what we want
+            while (!N::isLeaf (node)) {
+                uint8_t nodeKey;
+                std::tie (node, nodeKey) = N::seekSmaller (node, 255);
+            }
+            return N::getLeaf (node);
+        } else
+            break;
+    }
+
+    // LPM ended and leaf node is not found
+    uint8_t startLevel = (start.getKeyLen () > level) ? start[level] : 0;
+    uint8_t childKey;
+    N* child;
+
+    // try to find the key <= `start`
+    std::tie (child, childKey) = N::seekSmaller (node, startLevel);
+    if (child != nullptr) {
+        // find a key <= `start`, then we find the right most leaf node of this subtree
+        while (!N::isLeaf (child)) {
+            std::tie (child, childKey) = N::seekSmaller (child, 255);
+        }
+    } else {
+        // no smaller key, then we find the left most leaf node of this subtree. This will cause the
+        // return key is > `start`
+        uint8_t childKey;
+        std::tie (child, childKey) = N::seek (node, startLevel);
+        while (!N::isLeaf (child)) {
+            std::tie (child, childKey) = N::seek (child, 0);
+        }
+    }
+    return N::getLeaf (child);
+}
 
 bool Tree::lookupRange (const Key& start, const Key& end, Key& continueKey, TID result[],
                         std::size_t resultSize, std::size_t& resultsFound,

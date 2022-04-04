@@ -11,6 +11,74 @@
 
 namespace ART_DRAM {
 
+std::tuple<N*, uint8_t> N::seekSmaller (const N* node, uint8_t key) {
+    if (!node) return {nullptr, 0};
+    if (N::isLeaf (node)) {
+        return {nullptr, 0};
+    }
+
+    switch (node->getType ()) {
+        case NTypes::N4: {
+            const N4* n = static_cast<const N4*> (node);
+            return n->seekSmaller (key);
+        }
+        case NTypes::N16: {
+            const N16* n = static_cast<const N16*> (node);
+            return n->seekSmaller (key);
+        }
+        case NTypes::N48: {
+            const N48* n = static_cast<const N48*> (node);
+            return n->seekSmaller (key);
+        }
+        case NTypes::N256: {
+            const N256* n = static_cast<const N256*> (node);
+            return n->seekSmaller (key);
+        }
+        default: {
+            assert (false);
+            __builtin_unreachable ();
+        }
+    }
+
+    assert (false);
+    __builtin_unreachable ();
+    return {nullptr, 0};
+}
+
+std::tuple<N*, uint8_t> N::seek (const N* node, uint8_t key) {
+    if (!node) return {nullptr, 0};
+    if (N::isLeaf (node)) {
+        return {nullptr, 0};
+    }
+
+    switch (node->getType ()) {
+        case NTypes::N4: {
+            const N4* n = static_cast<const N4*> (node);
+            return n->seek (key);
+        }
+        case NTypes::N16: {
+            const N16* n = static_cast<const N16*> (node);
+            return n->seek (key);
+        }
+        case NTypes::N48: {
+            const N48* n = static_cast<const N48*> (node);
+            return n->seek (key);
+        }
+        case NTypes::N256: {
+            const N256* n = static_cast<const N256*> (node);
+            return n->seek (key);
+        }
+        default: {
+            assert (false);
+            __builtin_unreachable ();
+        }
+    }
+
+    assert (false);
+    __builtin_unreachable ();
+    return {nullptr, 0};
+}
+
 void N::setType (NTypes type) { typeVersionLockObsolete.fetch_add (convertTypeToVersion (type)); }
 
 uint64_t N::convertTypeToVersion (NTypes type) { return (static_cast<uint64_t> (type) << 62); }

@@ -169,11 +169,9 @@ class BitSet {
 public:
     BitSet () : bits_ (0) {}
 
-    explicit BitSet (uint32_t bits) : bits_ (bits) {}
+    explicit BitSet (uint64_t bits) : bits_ (bits) {}
 
-    // BitSet (const BitSet& b) { bits_ = b.bits_; }
-
-    inline int validCount (void) { return __builtin_popcount (bits_); }
+    inline int validCount (void) { return __builtin_popcountll (bits_); }
 
     inline BitSet& operator++ () {
         // remove the lowest 1-bit
@@ -185,19 +183,24 @@ public:
 
     inline int operator* () const {
         // count the tailing zero bit
-        return __builtin_ctz (bits_);
+        return __builtin_ctzll (bits_);
     }
 
     inline BitSet begin () const { return *this; }
 
     inline BitSet end () const { return BitSet (0); }
 
-    inline uint32_t bit () { return bits_; }
+    inline uint64_t bit () { return bits_; }
+
+    inline void set (int pos) {
+        assert (pos < 64);
+        bits_ |= (1LU << pos);
+    }
 
 private:
     friend bool operator== (const BitSet& a, const BitSet& b) { return a.bits_ == b.bits_; }
     friend bool operator!= (const BitSet& a, const BitSet& b) { return a.bits_ != b.bits_; }
-    uint32_t bits_;
+    uint64_t bits_;
 };
 
 /** Slice

@@ -6,6 +6,26 @@
 
 namespace ART_DRAM {
 
+std::tuple<N*, uint8_t> N48::seekSmaller (uint8_t key) const {
+    // TODO: better method without comparing one by one?
+    for (int i = key; i >= 0; i--) {
+        if (childIndex[i] != emptyMarker) {
+            return {children[childIndex[i]], i};
+        }
+    }
+    return {nullptr, 0};
+}
+
+std::tuple<N*, uint8_t> N48::seek (uint8_t key) const {
+    // TODO: better method without comparing one by one?
+    for (unsigned i = key; i < 256; i++) {
+        if (childIndex[i] != emptyMarker) {
+            return {children[childIndex[i]], i};
+        }
+    }
+    return {nullptr, 0};
+}
+
 bool N48::isFull () const { return count == 48; }
 
 bool N48::isUnderfull () const { return count == 12; }

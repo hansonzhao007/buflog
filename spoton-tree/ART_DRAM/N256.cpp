@@ -6,6 +6,28 @@
 
 namespace ART_DRAM {
 
+std::tuple<N*, uint8_t> N256::seekSmaller (uint8_t key) const {
+    // TODO: replace this with O(1) algorithm
+    for (int i = key; i >= 0; i--) {
+        if (children[i] != nullptr) {
+            return {children[i], i};
+        }
+    }
+    return {nullptr, 0};
+}
+
+// find node's first child that have leaf node >= key
+// return [child, child_key]
+std::tuple<N*, uint8_t> N256::seek (uint8_t key) const {
+    // TODO: replace this with O(1) algorithm
+    for (unsigned i = key; i < 256; i++) {
+        if (children[i] != nullptr) {
+            return {children[i], i};
+        }
+    }
+    return {nullptr, 0};
+}
+
 bool N256::isFull () const { return false; }
 
 bool N256::isUnderfull () const { return count == 37; }

@@ -133,8 +133,12 @@ public:
                                  std::tuple<uint8_t, N*> children[], uint32_t& childrenCount);
 
     // find node's first child that have leaf node >= key
-    // return [child, child_key, ith]
-    static std::tuple<N*, uint8_t, uint8_t> seek (N* node, uint8_t key);
+    // return [child, child_key]
+    static std::tuple<N*, uint8_t> seek (const N* node, uint8_t key);
+
+    // find node's right most child that have leaf node < key
+    // return [child, child_key]
+    static std::tuple<N*, uint8_t> seekSmaller (const N* node, uint8_t key);
 };
 
 class N4 : public N {
@@ -170,8 +174,12 @@ public:
                           uint32_t& childrenCount) const;
 
     // find node's first child that have leaf node >= key
-    // return [child, child_key, ith]
-    std::tuple<N*, uint8_t, uint8_t> seek (uint8_t key) const;
+    // return [child, child_key]
+    std::tuple<N*, uint8_t> seek (uint8_t key) const;
+
+    // find node's rightmost child that have leaf node < key
+    // return [child, child_key]
+    std::tuple<N*, uint8_t> seekSmaller (uint8_t key) const;
 };
 
 class N16 : public N {
@@ -238,8 +246,12 @@ public:
                           uint32_t& childrenCount) const;
 
     // find node's first child that have leaf node >= key
-    // return [child, child_key, ith]
-    std::tuple<N*, uint8_t, uint8_t> seek (uint8_t key) const;
+    // return [child, child_key]
+    std::tuple<N*, uint8_t> seek (uint8_t key) const;
+
+    // find node's rightmost child that have leaf node < key
+    // return [child, child_key]
+    std::tuple<N*, uint8_t> seekSmaller (uint8_t key) const;
 };
 
 class N48 : public N {
@@ -275,6 +287,14 @@ public:
 
     uint64_t getChildren (uint8_t start, uint8_t end, std::tuple<uint8_t, N*>*& children,
                           uint32_t& childrenCount) const;
+
+    // find node's first child that have leaf node >= key
+    // return [child, child_key]
+    std::tuple<N*, uint8_t> seek (uint8_t key) const;
+
+    // find node's rightmost child that have leaf node < key
+    // return [child, child_key]
+    std::tuple<N*, uint8_t> seekSmaller (uint8_t key) const;
 };
 
 class N256 : public N {
@@ -308,8 +328,12 @@ public:
                           uint32_t& childrenCount) const;
 
     // find node's first child that have leaf node >= key
-    // return [child, child_key, ith]
-    std::tuple<N*, uint8_t, uint8_t> seek (uint8_t key) const;
+    // return [child, child_key]
+    std::tuple<N*, uint8_t> seek (uint8_t key) const;
+
+    // find node's rightmost child that have leaf node < key
+    // return [child, child_key]
+    std::tuple<N*, uint8_t> seekSmaller (uint8_t key) const;
 };
 }  // namespace ART_DRAM
 

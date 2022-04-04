@@ -2,8 +2,8 @@
 **/release
 .vscode
 **/*.o
-**/*.txt
 **/*.log
 **/bin/*
 **/ycsb_bench
 lib/ralloc/test
+ipm_*.txt

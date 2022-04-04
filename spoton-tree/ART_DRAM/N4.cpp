@@ -6,6 +6,24 @@
 
 namespace ART_DRAM {
 
+std::tuple<N*, uint8_t> N4::seekSmaller (uint8_t key) const {
+    for (int i = count - 1; i >= 0; i--) {
+        if (keys[i] <= key) {
+            return {children[i], keys[i]};
+        }
+    }
+    return {nullptr, 0};
+}
+
+std::tuple<N*, uint8_t> N4::seek (uint8_t key) const {
+    for (uint32_t i = 0; i < count; ++i) {
+        if (keys[i] >= key) {
+            return {children[i], keys[i]};
+        }
+    }
+    return {nullptr, 0};
+}
+
 void N4::deleteChildren () {
     for (uint32_t i = 0; i < count; ++i) {
         N::deleteChildren (children[i]);
