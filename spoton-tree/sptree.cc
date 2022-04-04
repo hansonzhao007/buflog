@@ -9,85 +9,89 @@ SPTree::SPTree () {
     topLayer.insert (0, midLayer.head);
 }
 
-MLNode* SPTree::jumpToMiddleLayer (key_t key) {
-    MLNode* mnode = reinterpret_cast<MLNode*> (topLayer.seekLE (key));
-    assert (mnode != nullptr);
-    return midLayer.FindTargetMLNode (key, mnode);
-}
-
-TID SPTree::lookup (key_t& key) {
-retry1:
-    MLNode* mnode = jumpToMiddleLayer (key);
-
-retry2:
-    bool needRestart = false;
-    auto v = mnode->lock.readLockOrRestart (needRestart);
-    if (needRestart) {
-        // other thread is writing this mnode
-        _mm_pause ();
-        goto retry2;
-    }
-    if (RetryVersionLock::isObsolete (v)) {
-        // this mnode has been deleted
-        goto retry1;
-    }
-
-    if (key < mnode->lkey or mnode->hkey <= key) {
-        // this mnode is not our target node, retry
-        goto retry1;
-    }
-
-    val_t val;
-    botLayer.Lookup (key, val, mnode->leafNode);
-    mnode->lock.checkOrRestart (v, needRestart);
-    if (needRestart) {
-        goto retry2;
-    }
-
-    return val;
-}
-
-bool SPTree::insert (key_t& key, TID val) {
+std::tuple<MLNode*, uint64_t> SPTree::jumpToMiddleLayer (key_t key) {
 retry1:
     // 1. find the target middle layer node
-    MLNode* mnode = jumpToMiddleLayer (key);
+    MLNode* mnode = reinterpret_cast<MLNode*> (topLayer.seekLE (key));
+    assert (mnode != nullptr);
+    mnode = midLayer.FindTargetMLNode (key, mnode);
 
 retry2:
     bool needRestart = false;
     auto v = mnode->lock.readLockOrRestart (needRestart);
+    if (RetryVersionLock::isObsolete (v)) {
+        // this mnode has been deleted
+        goto retry1;
+    }
     if (needRestart) {
         // other thread is writing this mnode
         _mm_pause ();
         goto retry2;
     }
-    if (RetryVersionLock::isObsolete (v)) {
-        // this mnode has been deleted
-        goto retry1;
-    }
-
-    // 2. lock the mnode and try to insert
-    mnode->lock.upgradeToWriteLockOrRestart (v, needRestart);
-    if (needRestart) {
-        // fail to wirte-lock this node, retry
-        goto retry2;
-    }
-
     if (key < mnode->lkey or mnode->hkey <= key) {
         // this mnode is not our target node, retry
-        mnode->lock.writeUnlock ();
         goto retry1;
+    }
+    return {mnode, v};
+}
+
+TID SPTree::lookup (key_t key) {
+retry:
+    // 1. find the target middle layer node, and its version snapshot
+    MLNode* mnode;
+    uint64_t v;
+    std::tie (mnode, v) = jumpToMiddleLayer (key);
+
+    // 2. check the bloomfilter in middle layer
+    bool needRestart = false;
+    bool maybeExist = midLayer.CouldExist (key, mnode);
+    mnode->lock.checkOrRestart (v, needRestart);
+    if (needRestart) {
+        // version has changed
+        goto retry;
+    }
+    if (!maybeExist) {
+        // does not exist
+        return 0;
+    }
+
+    // 3. check the leaf node
+    val_t val;
+    bool res = botLayer.Lookup (key, val, mnode->leafNode);
+    mnode->lock.checkOrRestart (v, needRestart);
+    if (needRestart) {
+        // version has changed
+        goto retry;
+    }
+
+    return res ? val : 0;
+}
+
+bool SPTree::insert (key_t key, TID val) {
+retry:
+    // 1. find the target middle layer node, and its version snapshot
+    MLNode* mnode;
+    uint64_t v;
+    std::tie (mnode, v) = jumpToMiddleLayer (key);
+
+    // 2. lock the mnode and try to insert
+    bool needRestart = false;
+    mnode->lock.upgradeToWriteLockOrRestart (v, needRestart);
+    if (needRestart) {
+        // version has changed
+        goto retry;
     }
 
     // 3. insert to leafnode on pmem
     bool bottomInsertRes = botLayer.Insert (key, val, mnode->leafNode);
     if (!bottomInsertRes) {
         // fail to insert, split
-    retry3:
+    retry_lock_next:
         needRestart = false;
         // 3a. lock next mnode when split
         mnode->next->lock.writeLockOrRestart (needRestart);
         if (needRestart) {
-            goto retry3;
+            goto retry_lock_next;
         }
 
         // 3b. split the leaf node
@@ -103,7 +107,10 @@ retry2:
         mnode->next->prev = new_mnode;
         mnode->next = new_mnode;
         new_mnode->leafNode = newLeafNode;
-        BloomFilterFix64::BuildBloomFilter (newLeafNode, mnode->bloomfilter);
+        // create new_mnode's bloomfilter
+        BloomFilterFix64::BuildBloomFilter (newLeafNode, new_mnode->bloomfilter);
+        // rebuild mnode's bloomfilter
+        BloomFilterFix64::BuildBloomFilter (mnode->leafNode, mnode->bloomfilter);
 
         // 3b. insert newlkey->newNode to toplayer
         topLayer.insert (newlkey, new_mnode);
@@ -118,6 +125,37 @@ retry2:
     midLayer.SetBloomFilter (key, mnode);
     mnode->lock.writeUnlock ();
     return true;
+}
+
+bool SPTree::remove (key_t key) {
+retry:
+    // 1. find the target middle layer node, and its version snapshot
+    MLNode* mnode;
+    uint64_t v;
+    std::tie (mnode, v) = jumpToMiddleLayer (key);
+
+    // 2. check the bloomfilter in middle layer
+    bool needRestart = false;
+    bool maybeExist = midLayer.CouldExist (key, mnode);
+    mnode->lock.checkOrRestart (v, needRestart);
+    if (needRestart) {
+        // version has changed
+        goto retry;
+    }
+    if (!maybeExist) {
+        // does not exist
+        return false;
+    }
+
+    // 3. lock the mnode and try to remove
+    mnode->lock.upgradeToWriteLockOrRestart (v, needRestart);
+    if (needRestart) {
+        // version has changed
+        goto retry;
+    }
+    bool res = botLayer.Remove (key, mnode->leafNode);
+    mnode->lock.writeUnlock ();
+    return res;
 }
 
 }  // namespace spoton

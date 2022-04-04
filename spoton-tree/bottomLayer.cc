@@ -307,4 +307,6 @@ bool BottomLayer::Lookup (key_t key, val_t& val, LeafNode64* bnode) {
     return bnode->Lookup (key, val);
 }
 
+bool BottomLayer::Remove (key_t key, LeafNode64* bnode) { return bnode->Remove (key); }
+
 }  // namespace spoton

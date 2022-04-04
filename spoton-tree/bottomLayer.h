@@ -100,7 +100,7 @@ public:
     LeafNode64* initialize ();
     bool Insert (key_t key, val_t val, LeafNode64* bnode);
     bool Lookup (key_t key, val_t& val, LeafNode64* bnode);
-    // bool Remove (key_t key, LeafNode64* bnode);
+    bool Remove (key_t key, LeafNode64* bnode);
 
 private:
 };

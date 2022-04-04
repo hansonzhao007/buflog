@@ -21,15 +21,16 @@ public:
     SPTree ();
     ~SPTree (){};
 
-    bool insert (key_t& key, TID val);
-    bool update (key_t& key, TID val);
-    bool remove (key_t& key);
-    TID lookup (key_t& key);
-    uint64_t scan (key_t& startKey, int resultSize, std::vector<TID>& result);
+    bool insert (key_t key, TID val);
+    bool update (key_t key, TID val);
+    bool remove (key_t key);
+    TID lookup (key_t key);
+    uint64_t scan (key_t startKey, int resultSize, std::vector<TID>& result);
 
     // pmem part
 private:
-    MLNode* jumpToMiddleLayer (key_t key);
+    // locate the target middle layer node and its version, without lock
+    std::tuple<MLNode*, uint64_t> jumpToMiddleLayer (key_t key);
 };
 
 };  // namespace spoton
