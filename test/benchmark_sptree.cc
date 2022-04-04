@@ -42,6 +42,7 @@ DEFINE_uint64 (read, 0 * 1000000, "Number of read operations");
 DEFINE_uint64 (write, 5 * 1000000, "Number of read operations");
 DEFINE_bool (hist, false, "");
 DEFINE_string (benchmarks, "load,readall", "");
+DEFINE_bool (dram, false, "use dram leafnode");
 
 using namespace util;
 
@@ -471,14 +472,18 @@ public:
             }
 
             if (fresh_db) {
-                // DistroyBtree ();
-                tree_ = new spoton::SPTree ();
+                spoton::DistroyBtree ();
+                tree_ = spoton::CreateBtree (FLAGS_dram);
             }
 
             // CreateLogFile ();
 
-            // IPMWatcher watcher (name);
-            if (method != nullptr) RunBenchmark (thread, name, method, print_hist);
+            if (FLAGS_dram) {
+                if (method != nullptr) RunBenchmark (thread, name, method, print_hist);
+            } else {
+                IPMWatcher watcher (name);
+                if (method != nullptr) RunBenchmark (thread, name, method, print_hist);
+            }
         }
     }
 
@@ -559,7 +564,7 @@ public:
             for (; j < batch && key_iterator.Valid (); j++) {
                 size_t ikey = key_iterator.Next () + num_;
                 auto ret = tree_->lookup (ikey);
-                if (ret == ikey) {
+                if (ret == 0) {
                     not_find++;
                 }
             }

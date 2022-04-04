@@ -145,7 +145,8 @@ TEST (BottomLayer, Split) {
 
     ASSERT_TRUE (leafnode.Full ());
 
-    auto [new_leaf_node, new_lkey] = leafnode.Split (64, 64);
+    void* addr = malloc (sizeof (LeafNode64));
+    auto [new_leaf_node, new_lkey] = leafnode.Split (64, 64, addr);
 
     for (int i = 0; i < 32; i++) {
         val_t val;

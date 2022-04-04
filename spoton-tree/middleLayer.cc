@@ -79,6 +79,10 @@ void MiddleLayer::SetBloomFilter (key_t key, MLNode* mnode) {
     mnode->bloomfilter.set (key);
 }
 
+bool MiddleLayer::CouldExist (key_t key, MLNode* mnode) {
+    return mnode->bloomfilter.couldExist (key);
+}
+
 MLNode* MiddleLayer::FindTargetMLNode (key_t key, MLNode* mnode) {
     assert (mnode);
     while (mnode->lkey > key) {

@@ -2,7 +2,7 @@
 
 namespace spoton {
 
-SPTree::SPTree () {
+SPTree::SPTree (bool isDram) : botLayer (isDram) {
     // Initialize the first node in middle layer and bottom layer
     botLayer.initialize ();
     midLayer.head->leafNode = botLayer.head;
@@ -100,8 +100,9 @@ retry:
         }
 
         // 3b. split the leaf node
-        auto [newLeafNode, newlkey] = mnode->leafNode->Split (key, val);
-        DEBUG ("split insert %lu", key);
+        void* newLeafNodeAddr = botLayer.Malloc (sizeof (LeafNode64));
+        auto [newLeafNode, newlkey] = mnode->leafNode->Split (key, val, newLeafNodeAddr);
+
         // 3b. create a mnode for newLeafNode
         MLNode* old_next_mnode = mnode->next;
         MLNode* new_mnode = new MLNode ();
@@ -129,6 +130,7 @@ retry:
 
     // 4. succ. update bloomfilter in Dram
     midLayer.SetBloomFilter (key, mnode);
+
     mnode->lock.writeUnlock ();
     return true;
 }

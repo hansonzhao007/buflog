@@ -9,7 +9,7 @@ add_library(spotontree STATIC
     middleLayer.cc
     sptree.cc
 )
-target_link_libraries(spotontree ${TbbLib} ${JemallocLib} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(spotontree ${TbbLib} ${JemallocLib} ${CMAKE_THREAD_LIBS_INIT} ralloc)
 
 
 set(SOURCE_FILES example2.cc)

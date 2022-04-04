@@ -7,6 +7,11 @@
 
 #include "logger.h"
 #include "xxhash.h"
+
+// ralloc
+#include "pptr.hpp"
+#include "ralloc.hpp"
+
 namespace spoton {
 
 bool LeafNode64::Insert (key_t key, val_t val) {
@@ -107,7 +112,7 @@ void LeafNode64::Sort () {
     }
 }
 
-std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val) {
+std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* newNodeAddr) {
     // should lock both me and my next node
     assert (key >= this->lkey);
 
@@ -122,11 +127,12 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val) {
 
     key_t median = copied_slots[32].key;
 
+    DEBUG ("split insert %lu, median: %lu", key, median);
     // record the valid bitmap position, which need to be cleared later
     BitSet shiftedBitSet;
 
     // 1. create new LeafNode64 for right half keys
-    LeafNode64* newNode = new LeafNode64 ();
+    LeafNode64* newNode = new (newNodeAddr) LeafNode64 ();
 
     // 2. copy the righ half to newNode. [median, ..] -> newNode
     for (int i = 0; i < 64; i++) {
@@ -174,9 +180,17 @@ BitSet LeafNode64::MatchBitSet (uint8_t tag) {
     return BitSet (bitmask & this->valid_bitmap);
 }
 
+void* BottomLayer::Malloc (size_t size) {
+    if (isDram) return malloc (size);
+    return RP_malloc (size);
+}
+
 LeafNode64* BottomLayer::initialize () {
-    this->head = new LeafNode64 ();
-    LeafNode64* dummyTail = new LeafNode64 ();
+    void* tmp = Malloc (sizeof (LeafNode64));
+    this->head = new (tmp) LeafNode64 ();
+
+    tmp = Malloc (sizeof (LeafNode64));
+    LeafNode64* dummyTail = new (tmp) LeafNode64 ();
 
     head->lkey = 0;
     head->hkey = UINT64_MAX;

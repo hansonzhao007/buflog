@@ -103,9 +103,7 @@ public:
 
     void SetBloomFilter (key_t key, MLNode* mnode);
 
-    inline bool CouldExist (key_t key, MLNode* mnode) {
-        return mnode->bloomfilter.couldExist (key);
-    }
+    bool CouldExist (key_t key, MLNode* mnode);
 };
 
 };  // namespace spoton

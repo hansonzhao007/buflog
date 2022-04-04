@@ -45,7 +45,7 @@ public:
 
     // spilt the this node
     // return a new node and its lkey
-    std::tuple<LeafNode64*, key_t> Split (key_t key, val_t val);
+    std::tuple<LeafNode64*, key_t> Split (key_t key, val_t val, void* newLeafNodeAddr);
 
 public:
     BitSet MatchBitSet (uint8_t tag);
@@ -59,8 +59,12 @@ public:
 class BottomLayer {
 public:
     LeafNode64* head;
+    bool isDram{false};
 
 public:
+    explicit BottomLayer (bool isdram) : isDram (isdram) {}
+    void* Malloc (size_t size);
+
     LeafNode64* initialize ();
     bool Insert (key_t key, val_t val, LeafNode64* bnode);
     bool Lookup (key_t key, val_t& val, LeafNode64* bnode);

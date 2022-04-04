@@ -12,7 +12,7 @@ using namespace spoton;
 
 class SPTreeTest : public testing::Test {
 public:
-    SPTreeTest () { tree_ = new SPTree{}; }
+    SPTreeTest () { tree_ = new SPTree (); }
     SPTree* tree_;
 
     void Load (size_t num) {
@@ -24,7 +24,7 @@ public:
     void LoadRandom (size_t num) {
         keys.clear ();
         std::unordered_set<uint64_t> uniquekeys;
-        for (int i = 0; i < num; i++) {
+        for (size_t i = 0; i < num; i++) {
             size_t key = random ();
             while (uniquekeys.count (key) != 0) {
                 key = random ();
@@ -97,7 +97,7 @@ TEST_F (SPTreeTest, RandomInsertAndRemove) {
     for (size_t i = 0; i < num; i++) {
         TID tid = tree_->lookup (keys[i]);
         if (tid != 0) {
-            auto res = tree_->lookup (keys[i]);
+            tree_->lookup (keys[i]);
         }
     }
 }
