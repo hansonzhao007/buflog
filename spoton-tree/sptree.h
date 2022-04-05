@@ -17,9 +17,9 @@ namespace spoton {
 
 class SPTree {
 private:
-    TopLayer topLayer;
-    MiddleLayer midLayer;
-    BottomLayer botLayer;
+    TopLayer topLayer;     // dram top layer
+    MiddleLayer midLayer;  // dram middle layer
+    BottomLayer botLayer;  // pmem bottom layer
 
 public:
     SPTree (bool isDram = true);
@@ -32,7 +32,7 @@ public:
     uint64_t scan (key_t startKey, int resultSize, std::vector<TID>& result);
 
     std::string ToString ();
-    // pmem part
+
 private:
     // locate the target middle layer node and its version, without lock
     std::tuple<MLNode*, uint64_t> jumpToMiddleLayer (key_t key);

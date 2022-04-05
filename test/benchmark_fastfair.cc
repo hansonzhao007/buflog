@@ -42,6 +42,7 @@ DEFINE_uint64 (read, 0 * 1000000, "Number of read operations");
 DEFINE_uint64 (write, 5 * 1000000, "Number of read operations");
 DEFINE_bool (hist, false, "");
 DEFINE_string (benchmarks, "load,readall", "");
+DEFINE_bool (is_seq_trace, false, "using continous trace or random trace");
 
 using namespace util;
 
@@ -386,7 +387,7 @@ public:
     void Run () {
         trace_size_ = FLAGS_num;
         printf ("key trace size: %lu\n", trace_size_);
-        key_trace_ = new RandomKeyTrace (trace_size_);
+        key_trace_ = new RandomKeyTrace (trace_size_, FLAGS_is_seq_trace);
         if (reads_ == 0) {
             reads_ = key_trace_->count_;
             FLAGS_read = key_trace_->count_;

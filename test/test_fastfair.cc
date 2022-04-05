@@ -28,7 +28,7 @@ int main (int argc, char* argv[]) {
 
     struct timespec start, end;
 
-    util::RandomKeyTrace trace (FLAGS_num);
+    util::RandomKeyTrace trace (FLAGS_num, true);
 
     btree* bt = nullptr;
 
