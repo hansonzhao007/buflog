@@ -2,12 +2,15 @@
 #define SPOTON_TREE_BOTTOM_LAYER_H
 
 // ralloc
+
 #include "pptr.hpp"
 #include "ralloc.hpp"
 #include "retryLock.h"
 #include "spoton_util.h"
 
 namespace spoton {
+
+class BloomFilterFix64;
 
 /**
  * @brief format:
@@ -30,6 +33,7 @@ public:
     RetryVersionLock lock;
     LeafNode64* prev{nullptr};
     LeafNode64* next{nullptr};
+
     uint64_t valid_bitmap{0};  // 8B
     uint8_t tags[64];
     LeafNodeSlot slots[64];
@@ -45,7 +49,8 @@ public:
 
     // spilt the this node
     // return a new node and its lkey
-    std::tuple<LeafNode64*, key_t> Split (key_t key, val_t val, void* newLeafNodeAddr);
+    std::tuple<LeafNode64*, key_t> Split (key_t key, val_t val, void* newLeafNodeAddr,
+                                          BloomFilterFix64& bleft, BloomFilterFix64& bright);
 
 public:
     BitSet MatchBitSet (uint8_t tag);

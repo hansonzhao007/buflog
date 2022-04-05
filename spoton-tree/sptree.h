@@ -40,19 +40,9 @@ private:
 
 const size_t SPTREE_PMEM_SIZE = ((100LU << 30));
 
-static void DistroyBtree (void) {
-    remove ("/mnt/pmem/sptree_sb");
-    remove ("/mnt/pmem/sptree_desc");
-    remove ("/mnt/pmem/sptree_basemd");
-}
+void DistroyBtree (void);
 
-static SPTree* CreateBtree (bool isDram) {
-    printf ("Create Pmem SPTree\n");
-    // Step1. Initialize pmem library
-    if (!isDram) RP_init ("sptree", SPTREE_PMEM_SIZE);
-    SPTree* btree_root = new SPTree (isDram);
-    return btree_root;
-}
+SPTree* CreateBtree (bool isDram);
 
 };  // namespace spoton
 #endif

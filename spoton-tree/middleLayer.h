@@ -23,8 +23,6 @@ class BloomFilterFix64 {
     uint16_t bits[32];  // 512 bits
 
 public:
-    static void BuildBloomFilter (LeafNode64* leafnode, BloomFilterFix64& bloomfilter);
-
     void reset () { memset (this->bits, 0, 64); }
 
     void set (key_t key);

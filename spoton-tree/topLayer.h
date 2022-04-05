@@ -41,6 +41,8 @@ public:
     }
 
     // return the leafnode pointer whose minKey <= key
+    // however, it is not gurranteed that the returned node has minKey <= key,
+    // that's why we have `FindTargetMLNode` in MiddleLayer class to fix the issue.
     void* seekLE (size_t key) {
         auto tinfo = tree_dram->getThreadInfo ();
         Key skey;

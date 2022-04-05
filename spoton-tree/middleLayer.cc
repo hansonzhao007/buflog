@@ -3,18 +3,8 @@
 #include <climits>
 namespace spoton {
 
-void BloomFilterFix64::BuildBloomFilter (LeafNode64* leafnode, BloomFilterFix64& bloomfilter) {
-    DEBUG ("Build bloomfilter for leaf 0x%lx [%lu, %lu)", leafnode, leafnode->lkey, leafnode->hkey);
-    bloomfilter.reset ();
-    for (int i : leafnode->ValidBitSet ()) {
-        char buffer[8];
-        memcpy (buffer, &leafnode->slots[i].key, 8);
-        bloomfilter.set (buffer, 8);
-    }
-}
-
 void BloomFilterFix64::set (key_t key) {
-    char buffer[8];
+    char buffer[8] = {0};
     *reinterpret_cast<uint64_t*> (buffer) = key;
     set (buffer, 8);
 }
@@ -36,7 +26,7 @@ void BloomFilterFix64::set (const void* addr, size_t len) {
 }
 
 bool BloomFilterFix64::couldExist (key_t key) {
-    char buffer[8];
+    char buffer[8] = {0};
     *reinterpret_cast<uint64_t*> (buffer) = key;
     return couldExist (buffer, 8);
 }

@@ -100,24 +100,21 @@ retry:
         }
 
         // 3b. split the leaf node
-        void* newLeafNodeAddr = botLayer.Malloc (sizeof (LeafNode64));
-        auto [newLeafNode, newlkey] = mnode->leafNode->Split (key, val, newLeafNodeAddr);
-
-        // 3b. create a mnode for newLeafNode
         MLNode* old_next_mnode = mnode->next;
         MLNode* new_mnode = new MLNode ();
+        void* newLeafNodeAddr = botLayer.Malloc (sizeof (LeafNode64));
+        auto [newLeafNode, newlkey] = mnode->leafNode->Split (
+            key, val, newLeafNodeAddr, mnode->bloomfilter, new_mnode->bloomfilter);
+
+        // 3b. link mnode for newLeafNode
         new_mnode->lkey = newlkey;
         new_mnode->hkey = mnode->hkey;
         new_mnode->prev = mnode;
         new_mnode->next = mnode->next;
+        new_mnode->leafNode = newLeafNode;
         mnode->next->prev = new_mnode;
         mnode->next = new_mnode;
         mnode->hkey = newlkey;
-        new_mnode->leafNode = newLeafNode;
-        // create new_mnode's bloomfilter
-        BloomFilterFix64::BuildBloomFilter (newLeafNode, new_mnode->bloomfilter);
-        // rebuild my mnode's bloomfilter
-        BloomFilterFix64::BuildBloomFilter (mnode->leafNode, mnode->bloomfilter);
 
         // 3b. insert newlkey->newNode to toplayer
         topLayer.insert (newlkey, new_mnode);
@@ -194,4 +191,19 @@ std::string SPTree::ToString () {
     res += "total: " + std::to_string (total_record) + "\n";
     return res;
 }
+
+void DistroyBtree (void) {
+    remove ("/mnt/pmem/sptree_sb");
+    remove ("/mnt/pmem/sptree_desc");
+    remove ("/mnt/pmem/sptree_basemd");
+}
+
+SPTree* CreateBtree (bool isDram) {
+    printf ("Create Pmem SPTree\n");
+    // Step1. Initialize pmem library
+    if (!isDram) RP_init ("sptree", SPTREE_PMEM_SIZE);
+    SPTree* btree_root = new SPTree (isDram);
+    return btree_root;
+}
+
 }  // namespace spoton

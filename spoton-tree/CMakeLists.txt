@@ -1,3 +1,12 @@
+if( NOT CMAKE_BUILD_TYPE )
+    message(STATUS "No build type selected, default to Release")
+    set( CMAKE_BUILD_TYPE Release)
+else()
+    message(STATUS "Build type is set to ${CMAKE_BUILD_TYPE}")
+endif()
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -Wall -Wextra -march=native -g")
+
 find_library(JemallocLib jemalloc)
 find_library(TbbLib tbb)
 find_package (Threads)

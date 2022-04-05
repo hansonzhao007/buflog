@@ -146,7 +146,8 @@ TEST (BottomLayer, Split) {
     ASSERT_TRUE (leafnode.Full ());
 
     void* addr = malloc (sizeof (LeafNode64));
-    auto [new_leaf_node, new_lkey] = leafnode.Split (64, 64, addr);
+    BloomFilterFix64 left, right;
+    auto [new_leaf_node, new_lkey] = leafnode.Split (64, 64, addr, left, right);
 
     for (int i = 0; i < 32; i++) {
         val_t val;
@@ -160,25 +161,22 @@ TEST (BottomLayer, Split) {
         ASSERT_TRUE (res);
     }
 
-    BloomFilterFix64 bloomfilter;
-    BloomFilterFix64::BuildBloomFilter (&leafnode, bloomfilter);
     for (size_t i = 0; i < 32; i++) {
-        bool res = bloomfilter.couldExist (i);
+        bool res = left.couldExist (i);
         ASSERT_TRUE (res);
     }
     for (size_t i = 32; i <= 64; i++) {
-        bool res = bloomfilter.couldExist (i);
+        bool res = left.couldExist (i);
         ASSERT_FALSE (res);
     }
 
-    BloomFilterFix64::BuildBloomFilter (new_leaf_node, bloomfilter);
     for (size_t i = 0; i < 32; i++) {
-        bool res = bloomfilter.couldExist (i);
+        bool res = right.couldExist (i);
         ASSERT_FALSE (res);
     }
 
     for (size_t i = 32; i <= 64; i++) {
-        bool res = bloomfilter.couldExist (i);
+        bool res = right.couldExist (i);
         ASSERT_TRUE (res);
     }
 };

@@ -1,4 +1,3 @@
-#include "bottomLayer.h"
 
 #include <immintrin.h>
 
@@ -11,6 +10,10 @@
 // ralloc
 #include "pptr.hpp"
 #include "ralloc.hpp"
+
+// spoton layer
+#include "bottomLayer.h"
+#include "middleLayer.h"
 
 namespace spoton {
 
@@ -112,7 +115,9 @@ void LeafNode64::Sort () {
     }
 }
 
-std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* newNodeAddr) {
+std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* newNodeAddr,
+                                                  BloomFilterFix64& bleft,
+                                                  BloomFilterFix64& bright) {
     // should lock both me and my next node
     assert (key >= this->lkey);
 
@@ -127,7 +132,6 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* ne
 
     key_t median = copied_slots[32].key;
 
-    DEBUG ("split insert %lu, median: %lu", key, median);
     // record the valid bitmap position, which need to be cleared later
     BitSet shiftedBitSet;
 
@@ -168,7 +172,20 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* ne
         this->Insert (key, val);
     }
 
-    // DEBUG ("Split new node 0x%lx, lkey: %lu, hkey: %lu", newNode, newNode->lkey, newNode->hkey);
+    bleft.reset ();
+    for (int i = 0; i < 32; i++) {
+        bleft.set (copied_slots[i].key);
+    }
+
+    bright.reset ();
+    for (int i = 32; i < 64; i++) {
+        bright.set (copied_slots[i].key);
+    }
+    if (key < median) {
+        bleft.set (key);
+    } else {
+        bright.set (key);
+    }
     return {newNode, median};
 };
 
@@ -204,7 +221,8 @@ LeafNode64* BottomLayer::initialize () {
     dummyTail->prev = head;
     dummyTail->next = nullptr;
 
-    INFO ("Initial first leafnode 0x%lx, lkey: %lu, hkey: %lu", this->head, head->lkey, head->hkey);
+    INFO ("Initial first leafnode 0x%lx, lkey: %lu, hkey: %lu", (uint64_t)this->head, head->lkey,
+          head->hkey);
     return head;
 }
 
