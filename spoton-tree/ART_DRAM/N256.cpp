@@ -6,6 +6,17 @@
 
 namespace ART_DRAM {
 
+template <typename Fn>
+void N256::DeepVisit (Stat& stat, Fn&& callback) {
+    for (unsigned i = 0; i < 256; i++) {
+        if (this->children[i] != nullptr) {
+            auto node = this->children[i];
+            N::DeepVisit (node, stat, callback);
+            callback (node);
+        }
+    }
+}
+
 std::tuple<N*, uint8_t> N256::seekSmaller (uint8_t key) const {
     // TODO: replace this with O(1) algorithm
     for (int i = key; i >= 0; i--) {

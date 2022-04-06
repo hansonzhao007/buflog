@@ -35,6 +35,8 @@ public:
     void* seekLE (size_t key);
 
     void remove (size_t key, void* leafnode_ptr);
+
+    std::string ToStats ();
 };
 };  // namespace spoton
 

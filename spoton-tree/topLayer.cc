@@ -37,4 +37,6 @@ void TopLayer::remove (size_t key, void* leafnode_ptr) {
     tree_dram->remove (rkey, reinterpret_cast<uint64_t> (leafnode_ptr), tinfo);
 }
 
+std::string TopLayer::ToStats () { return tree_dram->ToStats (); }
+
 }  // namespace spoton

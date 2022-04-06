@@ -6,6 +6,15 @@
 
 namespace ART_DRAM {
 
+template <typename Fn>
+void N4::DeepVisit (Stat& stat, Fn&& callback) {
+    for (uint32_t i = 0; i < count; ++i) {
+        N* node = this->children[i];
+        N::DeepVisit (node, stat, callback);
+        callback (node);
+    }
+}
+
 std::tuple<N*, uint8_t> N4::seekSmaller (uint8_t key) const {
     for (int i = count - 1; i >= 0; i--) {
         if (keys[i] <= key) {

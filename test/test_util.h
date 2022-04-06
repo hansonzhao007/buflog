@@ -29,13 +29,36 @@ auto rng = std::default_random_engine{};
 static constexpr uint64_t kRandNumMax = (1LU << 60);
 static constexpr uint64_t kRandNumMaxMask = kRandNumMax - 1;
 
-static uint64_t u64Rand (const uint64_t& min, const uint64_t& max) {
-    static thread_local std::mt19937 generator (std::random_device{}());
-    std::uniform_int_distribution<uint64_t> distribution (min, max);
-    return distribution (generator);
-}
+// static uint64_t u64Rand (const uint64_t& min, const uint64_t& max) {
+//     static thread_local std::mt19937 generator (std::random_device{}());
+//     std::uniform_int_distribution<uint64_t> distribution (min, max);
+//     return distribution (generator);
+// }
 
 namespace util {
+
+class Random64 {
+public:
+    static inline uint64_t rotl (const uint64_t x, int k) { return (x << k) | (x >> (64 - k)); }
+    static inline uint64_t mSeed[4]{1234567, 314159, 7777777, 2333333};
+
+    static uint64_t next (void) {
+        const uint64_t result = mSeed[0] + mSeed[3];
+
+        const uint64_t t = mSeed[1] << 17;
+
+        mSeed[2] ^= mSeed[0];
+        mSeed[3] ^= mSeed[1];
+        mSeed[1] ^= mSeed[2];
+        mSeed[0] ^= mSeed[3];
+
+        mSeed[2] ^= t;
+
+        mSeed[3] = rotl (mSeed[3], 45);
+
+        return result;
+    }
+};
 
 // A very simple random number generator.  Not especially good at
 // generating truly random bits, but good enough for our needs in this
@@ -343,17 +366,24 @@ public:
 
         printf ("generate %lu keys\n", count);
         auto starttime = std::chrono::system_clock::now ();
-        tbb::parallel_for (tbb::blocked_range<uint64_t> (0, count),
-                           [&] (const tbb::blocked_range<uint64_t>& range) {
-                               for (uint64_t i = range.begin (); i != range.end (); i++) {
-                                   if (isSeq) {
-                                       keys_[i] = i + 1;
-                                   } else {
-                                       uint64_t num = u64Rand (1LU, kRandNumMax);
-                                       keys_[i] = num;
-                                   }
-                               }
-                           });
+        for (uint64_t i = 0; i < count; i++) {
+            if (isSeq) {
+                keys_[i] = i + 1;
+            } else {
+                keys_[i] = Random64::next ();
+            }
+        }
+        // tbb::parallel_for (tbb::blocked_range<uint64_t> (0, count),
+        //                    [&] (const tbb::blocked_range<uint64_t>& range) {
+        //                        for (uint64_t i = range.begin (); i != range.end (); i++) {
+        //                            if (isSeq) {
+        //                                keys_[i] = i + 1;
+        //                            } else {
+        //                                uint64_t num = u64Rand (1LU, kRandNumMax);
+        //                                keys_[i] = num;
+        //                            }
+        //                        }
+        //                    });
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
             std::chrono::system_clock::now () - starttime);
         printf ("generate duration %f s.\n", duration.count () / 1000000.0);

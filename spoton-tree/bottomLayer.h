@@ -6,17 +6,11 @@
 #include "pptr.hpp"
 #include "ralloc.hpp"
 #include "retryLock.h"
-#include "spoton_util.h"
-
+#include "sptree_meta.h"
 namespace spoton {
 
 class BloomFilterFix64;
 
-/**
- * @brief format:
- * | erase bitmap | valid bitmap | tags | slots |
- *
- */
 using key_t = size_t;
 using val_t = size_t;
 
@@ -25,19 +19,51 @@ struct LeafNodeSlot {
     val_t val;
 };
 
+class LeafNode64;
+class BottomLayer {
+public:
+    LeafNode64* head;
+    bool isDram{false};
+
+public:
+    BottomLayer (bool isdram) : isDram (isdram) {}
+
+    void Initialize (SPTreePmemRoot*);
+    void Recover (SPTreePmemRoot*);
+
+    bool Insert (key_t key, val_t val, LeafNode64* bnode);
+    bool Lookup (key_t key, val_t& val, LeafNode64* bnode);
+    bool Remove (key_t key, LeafNode64* bnode);
+
+    void* Malloc (size_t size);
+
+    std::string ToStats ();
+};
+
 class LeafNode64 {
 public:
     key_t lkey{0};
     key_t hkey{0};
-
     RetryVersionLock lock;
-    LeafNode64* prev{nullptr};
-    LeafNode64* next{nullptr};
+    union {
+        LeafNode64* prev_dram;
+        pptr<LeafNode64> prev_pmem;
+    };
+
+    union {
+        LeafNode64* next_dram;
+        pptr<LeafNode64> next_pmem;
+    };
 
     uint64_t valid_bitmap{0};  // 8B
     uint8_t tags[64];
     LeafNodeSlot slots[64];
     uint8_t seqs[64];
+
+public:
+    // by default, create pmem leafnode
+    static inline bool kIsLeafNodeDram{false};
+    LeafNode64 ();
 
 public:
     bool Insert (key_t key, val_t val);
@@ -53,29 +79,20 @@ public:
                                           BloomFilterFix64& bleft, BloomFilterFix64& bright);
 
 public:
-    BitSet MatchBitSet (uint8_t tag);
+    void SetPrev (LeafNode64* ptr);
+    void SetNext (LeafNode64* ptr);
+
+    LeafNode64* GetPrev ();
+    LeafNode64* GetNext ();
+
+    LeafNodeBitSet MatchBitSet (uint8_t tag);
     inline bool Full () { return __builtin_popcountll (valid_bitmap) == 64; }
-    inline BitSet ValidBitSet () { return BitSet (valid_bitmap); }
-    inline BitSet EmptyBitSet () { return BitSet (~valid_bitmap); }
+    inline LeafNodeBitSet ValidBitSet () { return LeafNodeBitSet (valid_bitmap); }
+    inline LeafNodeBitSet EmptyBitSet () { return LeafNodeBitSet (~valid_bitmap); }
     inline void SetValid (int pos) { valid_bitmap |= (1L << pos); }
     inline void SetErase (int pos) { valid_bitmap &= ~(1L << pos); }
 };
 
-class BottomLayer {
-public:
-    LeafNode64* head;
-    bool isDram{false};
-
-    BottomLayer (bool isdram) : isDram (isdram) {}
-
-    LeafNode64* Initialize ();
-
-    bool Insert (key_t key, val_t val, LeafNode64* bnode);
-    bool Lookup (key_t key, val_t& val, LeafNode64* bnode);
-    bool Remove (key_t key, LeafNode64* bnode);
-
-    void* Malloc (size_t size);
-};
 };  // namespace spoton
 
 #endif

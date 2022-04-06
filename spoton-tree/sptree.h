@@ -6,6 +6,7 @@
 #include "Key.h"
 #include "bottomLayer.h"
 #include "middleLayer.h"
+#include "thread-pool/thread_pool.hpp"
 #include "topLayer.h"
 #include "topLayerPmem.h"
 
@@ -17,11 +18,11 @@ namespace spoton {
 
 class SPTree {
 private:
-    TopLayer topLayer;     // dram top layer
-    MiddleLayer midLayer;  // dram middle layer
-    BottomLayer botLayer;  // pmem bottom layer
-
+    TopLayer topLayer;          // dram top layer
+    MiddleLayer midLayer;       // dram middle layer
+    BottomLayer botLayer;       // pmem bottom layer
     TopLayerPmem topLayerPmem;  // async update the pmem top layer
+    thread_pool tpool;
 
 public:
     static constexpr size_t SPTREE_PMEM_SIZE{((128LU << 30))};
@@ -37,6 +38,8 @@ public:
 private:
     // You should not call the constructor directly, use CreateSPTree instead
     SPTree (bool isDram = true);
+    void Initialize (SPTreePmemRoot*);
+    void Recover (SPTreePmemRoot*);
 
 public:
     ~SPTree (){};
@@ -48,6 +51,8 @@ public:
     uint64_t scan (key_t startKey, int resultSize, std::vector<TID>& result);
 
     std::string ToString ();
+
+    std::string ToStats ();
 
 private:
     // locate the target middle layer node and its version, without lock

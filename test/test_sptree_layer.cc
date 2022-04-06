@@ -5,7 +5,6 @@
 #include "spoton-tree/bottomLayer.h"
 #include "spoton-tree/middleLayer.h"
 #include "spoton-tree/topLayer.h"
-#include "spoton_util.h"
 
 using namespace std;
 using namespace spoton;
@@ -34,7 +33,7 @@ public:
 };
 
 TEST (BitSet, Basic) {
-    BitSet bitset{0x5555555555555555};
+    LeafNodeBitSet bitset{0x5555555555555555};
     int count = 0;
     for (auto i : bitset) {
         ASSERT_EQ (i, count);
@@ -90,6 +89,7 @@ TEST (MiddleLayer, Basic) {
 }
 
 TEST (BottomLayer, Basic) {
+    LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
     for (size_t i = 0; i < 64; i++) {
         ASSERT_TRUE (leafnode.Insert (i, i));
@@ -99,6 +99,7 @@ TEST (BottomLayer, Basic) {
 };
 
 TEST (BottomLayer, UnSort) {
+    LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
 
     for (size_t i = 0; i < 64; i++) {
@@ -116,6 +117,7 @@ TEST (BottomLayer, UnSort) {
 };
 
 TEST (BottomLayer, Sort) {
+    LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
     for (size_t i = 0; i < 64; i++) {
         ASSERT_TRUE (leafnode.Insert (random (), i));
@@ -134,10 +136,11 @@ TEST (BottomLayer, Sort) {
 };
 
 TEST (BottomLayer, Split) {
+    LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
     LeafNode64 dummy;
-    leafnode.next = &dummy;
-    dummy.prev = &leafnode;
+    leafnode.SetNext (&dummy);
+    dummy.SetPrev (&leafnode);
 
     for (size_t i = 0; i < 64; i++) {
         ASSERT_TRUE (leafnode.Insert (i, i));

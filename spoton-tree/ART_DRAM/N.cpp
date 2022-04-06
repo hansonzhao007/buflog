@@ -487,4 +487,61 @@ uint64_t N::getChildren (const N* node, uint8_t start, uint8_t end,
     assert (false);
     __builtin_unreachable ();
 }
+
+template <typename Fn>
+void N::DeepVisit (N* node, Stat& stat, Fn&& callback) {
+    if (N::isLeaf (node)) {
+        stat.nleafs_++;
+        return;
+    }
+
+    stat.height_++;
+
+restart:
+    uint64_t v;
+    bool needRestart = false;
+    v = node->readLockOrRestart (needRestart);
+
+    if (needRestart) {
+        if (node->isLocked (v)) goto restart;
+        assert (isObsolete (v));
+        return;
+    }
+
+    switch (node->getType ()) {
+        case NTypes::N4: {
+            N4* n = static_cast<N4*> (node);
+            stat.n4_++;
+            n->DeepVisit (stat, callback);
+            break;
+        }
+        case NTypes::N16: {
+            N16* n = static_cast<N16*> (node);
+            stat.n16_++;
+            n->DeepVisit (stat, callback);
+            break;
+        }
+        case NTypes::N48: {
+            N48* n = static_cast<N48*> (node);
+            stat.n48_++;
+            n->DeepVisit (stat, callback);
+            break;
+        }
+        case NTypes::N256: {
+            N256* n = static_cast<N256*> (node);
+            stat.n256_++;
+            n->DeepVisit (stat, callback);
+            break;
+        }
+        default: {
+            assert (false);
+            __builtin_unreachable ();
+        }
+    }
+
+    node->readUnlockOrRestart (v, needRestart);
+    if (needRestart) goto restart;
+
+    stat.height_--;
+}
 }  // namespace ART_DRAM

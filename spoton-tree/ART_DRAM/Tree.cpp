@@ -711,4 +711,31 @@ typename Tree::PCEqualsResults Tree::checkPrefixEquals (const N* n, uint32_t& le
     }
     return PCEqualsResults::BothMatch;
 }
+
+std::string Tree::ToStats () {
+    N::Stat stat;
+    uint32_t height = 0;
+
+    if (root) {
+        N::DeepVisit ((N*)root, stat, [&] (N* node) {
+            if (stat.height_ > height) height = stat.height_;
+        });
+
+        std::string str;
+        str += "height: " + std::to_string (height);
+        str += ", #leafs: " + std::to_string (stat.nleafs_);
+        str += ", #n4-n256: (" + std::to_string (stat.n4_) + ", " + std::to_string (stat.n16_) +
+               ", " + std::to_string (stat.n48_) + ", " + std::to_string (stat.n256_) + ")";
+
+        uint64_t maxsize = 4 * stat.n4_ + 16 * stat.n16_ + 48 * stat.n48_ + 256 * stat.n256_;
+        double density = (stat.nleafs_ * 1.0) / maxsize;
+        str += ", density: " + std::to_string (density);
+
+        uint64_t sizebytes = sizeof (N4) * stat.n4_ + sizeof (N16) * stat.n16_ +
+                             sizeof (N48) * stat.n48_ + sizeof (N256) * stat.n256_;
+        str += ", memory: " + std::to_string (sizebytes / 1024.0 / 1024.0) + " M";
+        return str;
+    } else
+        return {};
+}
 }  // namespace ART_DRAM

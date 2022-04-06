@@ -54,6 +54,18 @@ protected:
     static uint64_t convertTypeToVersion (NTypes type);
 
 public:
+    struct Stat {
+        // accumulated numbers
+        uint32_t nleafs_ = 0;
+        uint32_t n4_ = 0;
+        uint32_t n16_ = 0;
+        uint32_t n48_ = 0;
+        uint32_t n256_ = 0;
+
+        // temp variables
+        uint32_t height_ = 0;
+    };
+
     NTypes getType () const;
 
     uint32_t getCount () const;
@@ -139,6 +151,9 @@ public:
     // find node's right most child that have leaf node < key
     // return [child, child_key]
     static std::tuple<N*, uint8_t> seekSmaller (const N* node, uint8_t key);
+
+    template <typename Fn>
+    static void DeepVisit (N* node, Stat& stat, Fn&& callback);
 };
 
 class N4 : public N {
@@ -180,6 +195,9 @@ public:
     // find node's rightmost child that have leaf node < key
     // return [child, child_key]
     std::tuple<N*, uint8_t> seekSmaller (uint8_t key) const;
+
+    template <typename Fn>
+    void DeepVisit (Stat& stat, Fn&& callback);
 };
 
 class N16 : public N {
@@ -252,6 +270,9 @@ public:
     // find node's rightmost child that have leaf node < key
     // return [child, child_key]
     std::tuple<N*, uint8_t> seekSmaller (uint8_t key) const;
+
+    template <typename Fn>
+    void DeepVisit (Stat& stat, Fn&& callback);
 };
 
 class N48 : public N {
@@ -295,6 +316,9 @@ public:
     // find node's rightmost child that have leaf node < key
     // return [child, child_key]
     std::tuple<N*, uint8_t> seekSmaller (uint8_t key) const;
+
+    template <typename Fn>
+    void DeepVisit (Stat& stat, Fn&& callback);
 };
 
 class N256 : public N {
@@ -334,6 +358,9 @@ public:
     // find node's rightmost child that have leaf node < key
     // return [child, child_key]
     std::tuple<N*, uint8_t> seekSmaller (uint8_t key) const;
+
+    template <typename Fn>
+    void DeepVisit (Stat& stat, Fn&& callback);
 };
 }  // namespace ART_DRAM
 

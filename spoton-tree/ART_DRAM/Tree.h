@@ -77,6 +77,8 @@ public:
     void insert (const Key& k, TID tid, ThreadInfo& epocheInfo);
 
     void remove (const Key& k, TID tid, ThreadInfo& epocheInfo);
+
+    std::string ToStats ();
 };
 }  // namespace ART_DRAM
 #endif

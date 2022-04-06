@@ -17,6 +17,47 @@
 
 namespace spoton {
 
+LeafNode64::LeafNode64 () {
+    if (kIsLeafNodeDram) {
+        // dram mode
+        next_dram = nullptr;
+        prev_dram = nullptr;
+    } else {
+        next_pmem = nullptr;
+        prev_pmem = nullptr;
+    }
+}
+
+void LeafNode64::SetPrev (LeafNode64* ptr) {
+    if (kIsLeafNodeDram) {
+        prev_dram = ptr;
+    } else {
+        prev_pmem = ptr;
+    }
+}
+
+void LeafNode64::SetNext (LeafNode64* ptr) {
+    if (kIsLeafNodeDram) {
+        next_dram = ptr;
+    } else {
+        next_pmem = ptr;
+    }
+}
+
+LeafNode64* LeafNode64::GetPrev () {
+    if (kIsLeafNodeDram) {
+        return prev_dram;
+    }
+    return prev_pmem;
+}
+
+LeafNode64* LeafNode64::GetNext () {
+    if (kIsLeafNodeDram) {
+        return next_dram;
+    }
+    return next_pmem;
+}
+
 bool LeafNode64::Insert (key_t key, val_t val) {
     // obtain key hash
     uint64_t hash = XXH3_64bits (&key, 8);
@@ -133,7 +174,7 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* ne
     key_t median = copied_slots[32].key;
 
     // record the valid bitmap position, which need to be cleared later
-    BitSet shiftedBitSet;
+    LeafNodeBitSet shiftedBitSet;
 
     // 1. create new LeafNode64 for right half keys
     LeafNode64* newNode = new (newNodeAddr) LeafNode64 ();
@@ -153,12 +194,12 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* ne
     // 3. set newNode info
     newNode->lkey = median;
     newNode->hkey = this->hkey;
-    newNode->prev = this;
-    newNode->next = this->next;
+    newNode->SetPrev (this);
+    newNode->SetNext (this->GetNext ());
 
     // 4. link me
-    this->next->prev = newNode;
-    this->next = newNode;
+    this->GetNext ()->SetPrev (newNode);
+    this->SetNext (newNode);
 
     // store fence here
     std::atomic_thread_fence (std::memory_order_release);
@@ -189,12 +230,12 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* ne
     return {newNode, median};
 };
 
-BitSet LeafNode64::MatchBitSet (uint8_t tag) {
+LeafNodeBitSet LeafNode64::MatchBitSet (uint8_t tag) {
     // passing the tag to vector
     auto tag_vector = _mm512_set1_epi8 (tag);
     auto tag_compare = _mm512_loadu_si512 (reinterpret_cast<const __m512i*> (this->tags));
     auto bitmask = _mm512_cmpeq_epi8_mask (tag_vector, tag_compare);
-    return BitSet (bitmask & this->valid_bitmap);
+    return LeafNodeBitSet (bitmask & this->valid_bitmap);
 }
 
 void* BottomLayer::Malloc (size_t size) {
@@ -202,7 +243,7 @@ void* BottomLayer::Malloc (size_t size) {
     return RP_malloc (size);
 }
 
-LeafNode64* BottomLayer::Initialize () {
+void BottomLayer::Initialize (SPTreePmemRoot* root) {
     void* tmp = Malloc (sizeof (LeafNode64));
     this->head = new (tmp) LeafNode64 ();
 
@@ -212,19 +253,27 @@ LeafNode64* BottomLayer::Initialize () {
     head->lkey = 0;
     head->hkey = UINT64_MAX;
 
-    head->prev = nullptr;
-    head->next = dummyTail;
+    head->SetPrev (nullptr);
+    head->SetNext (dummyTail);
 
     dummyTail->lkey = UINT64_MAX;
     dummyTail->hkey = UINT64_MAX;
 
-    dummyTail->prev = head;
-    dummyTail->next = nullptr;
+    dummyTail->SetPrev (head);
+    dummyTail->SetNext (nullptr);
 
+    if (root) {
+        if (isDram) {
+            ERROR ("passing pmem root meta in dram mode");
+            exit (1);
+        }
+        root->bottomLayerLeafNode64_head = this->head;
+    }
     INFO ("Initial first leafnode 0x%lx, lkey: %lu, hkey: %lu", (uint64_t)this->head, head->lkey,
           head->hkey);
-    return head;
 }
+
+void BottomLayer::Recover (SPTreePmemRoot* root) { head = root->bottomLayerLeafNode64_head; }
 
 bool BottomLayer::Insert (key_t key, val_t val, LeafNode64* bnode) {
     return bnode->Insert (key, val);
@@ -235,5 +284,17 @@ bool BottomLayer::Lookup (key_t key, val_t& val, LeafNode64* bnode) {
 }
 
 bool BottomLayer::Remove (key_t key, LeafNode64* bnode) { return bnode->Remove (key); }
+
+std::string BottomLayer::ToStats () {
+    LeafNode64* cur = head;
+    size_t total_size = 0;
+    while (cur) {
+        total_size += sizeof (LeafNode64);
+        cur = cur->GetNext ();
+    }
+    char buffer[128];
+    sprintf (buffer, "Bottome Layer Size: %f MB", total_size / 1024.0 / 1024.0);
+    return buffer;
+}
 
 }  // namespace spoton

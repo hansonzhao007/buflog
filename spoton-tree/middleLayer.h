@@ -81,12 +81,34 @@ public:
 
     char* headptr{nullptr};
 
+private:
     BloomFilterFix64 bloomfilter;
 
+public:
     LeafNode64* leafNode{nullptr};
+
     MLNodeType type{MLNodeTypeNoBuffer};  // 1B
+    bool isDisabled{true};
 
     char writeBuffer[0];
+
+    size_t Size () { return sizeof (MLNode); }
+
+public:
+    inline void EnableBloomFilter () { isDisabled = false; }
+
+    void SetBloomFilter (key_t key) {
+        if (isDisabled) return;
+        bloomfilter.set (key);
+    }
+    bool CouldExist (key_t key) {
+        // If a bloom filter has not been enable, we should not use it. After recover, all the
+        // bloomfilter is disabled. A leaf node split will automatically enable the bloom filter
+        if (isDisabled) return true;
+        return bloomfilter.couldExist (key);
+    }
+
+    BloomFilterFix64& GetBloomFilter () { return bloomfilter; }
 };
 
 class MiddleLayer {
@@ -100,8 +122,9 @@ public:
     MLNode* FindTargetMLNode (key_t key, MLNode* mnode);
 
     void SetBloomFilter (key_t key, MLNode* mnode);
-
     bool CouldExist (key_t key, MLNode* mnode);
+
+    std::string ToStats ();
 };
 
 };  // namespace spoton

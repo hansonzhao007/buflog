@@ -21,7 +21,6 @@
 
 #include "histogram.h"
 #include "spoton-tree/sptree.h"
-#include "spoton_log.h"
 #include "test_util.h"
 
 #define likely(x) (__builtin_expect (false || (x), true))
@@ -82,10 +81,10 @@ PMEMobjpool* log_pop;
 //     }
 // }
 
-void RegisterLog (int id, size_t log_size) {
-    void* log_base_addr = pmemobj_direct (log_root->log_addrs[id]);
-    spoton::Log_t::RegisterThreadLocalLog ((char*)(log_base_addr), log_size);
-}
+// void RegisterLog (int id, size_t log_size) {
+//     void* log_base_addr = pmemobj_direct (log_root->log_addrs[id]);
+//     spoton::Log_t::RegisterThreadLocalLog ((char*)(log_base_addr), log_size);
+// }
 namespace {
 
 class Stats {
@@ -469,6 +468,10 @@ public:
                 fresh_db = false;
                 thread = 1;
                 method = &Benchmark::PrintTree;
+            } else if (name == "status") {
+                fresh_db = false;
+                thread = 1;
+                method = &Benchmark::Status;
             }
 
             if (fresh_db) {
@@ -904,6 +907,12 @@ public:
         return;
     }
 
+    void Status (ThreadState* thread) {
+        auto res = tree_->ToStats ();
+        printf ("%s\n", res.c_str ());
+        return;
+    }
+
 private:
     struct ThreadArg {
         Benchmark* bm;
@@ -1011,31 +1020,7 @@ private:
     void PrintHeader () {
         fprintf (stdout, "------------------------------------------------\n");
         PrintEnvironment ();
-
-#ifdef SPOTON
-        fprintf (stdout, "Spoton:                true\n");
-#else
-        fprintf (stdout, "Spoton:                false\n");
-#endif
-
-#ifdef CONFIG_BUFNODE
-        fprintf (stdout, "Buffer:                true\n");
-#else
-        fprintf (stdout, "Buffer:                false\n");
-#endif
-
-#ifdef CONFIG_DRAM_INNER
-        fprintf (stdout, "DramInner:             true\n");
-#else
-        fprintf (stdout, "DramInner:             false\n");
-#endif
-
-#ifdef CONFIG_OUT_OF_PLACE_MERGE
-        fprintf (stdout, "Out-Place-Merge:       true\n");
-#else
-        fprintf (stdout, "Out-Place-Merge:       false\n");
-#endif
-
+        fprintf (stdout, "SPTree\n");
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Trace size:            %lu\n", (uint64_t)trace_size_);

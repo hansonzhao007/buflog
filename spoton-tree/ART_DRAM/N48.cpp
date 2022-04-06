@@ -6,6 +6,17 @@
 
 namespace ART_DRAM {
 
+template <typename Fn>
+void N48::DeepVisit (Stat& stat, Fn&& callback) {
+    for (unsigned i = 0; i < 256; i++) {
+        if (childIndex[i] != emptyMarker) {
+            auto node = children[childIndex[i]];
+            N::DeepVisit (node, stat, callback);
+            callback (node);
+        }
+    }
+}
+
 std::tuple<N*, uint8_t> N48::seekSmaller (uint8_t key) const {
     // TODO: better method without comparing one by one?
     for (int i = key; i >= 0; i--) {

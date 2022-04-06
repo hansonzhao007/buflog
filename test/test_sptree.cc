@@ -5,7 +5,6 @@
 
 #include "gtest/gtest.h"
 #include "spoton-tree/sptree.h"
-#include "spoton_util.h"
 
 using namespace std;
 using namespace spoton;

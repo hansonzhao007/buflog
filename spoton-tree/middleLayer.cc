@@ -66,12 +66,10 @@ MiddleLayer::MiddleLayer () {
 
 void MiddleLayer::SetBloomFilter (key_t key, MLNode* mnode) {
     // set bloom filter for key
-    mnode->bloomfilter.set (key);
+    mnode->SetBloomFilter (key);
 }
 
-bool MiddleLayer::CouldExist (key_t key, MLNode* mnode) {
-    return mnode->bloomfilter.couldExist (key);
-}
+bool MiddleLayer::CouldExist (key_t key, MLNode* mnode) { return mnode->CouldExist (key); }
 
 MLNode* MiddleLayer::FindTargetMLNode (key_t key, MLNode* mnode) {
     assert (mnode);
@@ -96,6 +94,18 @@ MLNode* MiddleLayer::FindTargetMLNode (key_t key, MLNode* mnode) {
 
     // now we have mnode, key is in [mnode->lkey, mnode->hkey)
     return mnode;
+}
+
+std::string MiddleLayer::ToStats () {
+    MLNode* cur = head;
+    size_t total_size = 0;
+    while (cur) {
+        total_size += cur->Size ();
+        cur = cur->next;
+    }
+    char buffer[128];
+    sprintf (buffer, "Middle Layer size: %f MB", total_size / 1024.0 / 1024.0);
+    return buffer;
 }
 
 };  // namespace spoton

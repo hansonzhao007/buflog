@@ -1,14 +1,94 @@
 #include "sptree.h"
 
+#include "sptree_meta.h"
 namespace spoton {
 
-SPTree::SPTree (bool isDram) : botLayer (isDram), topLayerPmem (isDram) {
-    // Initialize the first node in middle layer and bottom layer
-    botLayer.Initialize ();
+void SPTree::DistroySPTree (void) {
+    ::remove ("/mnt/pmem/sptree_sb");
+    ::remove ("/mnt/pmem/sptree_desc");
+    ::remove ("/mnt/pmem/sptree_basemd");
+}
+
+SPTree* SPTree::CreateSPTree (bool isDram) {
+    // configure bottom layer leafnode as dram node or pmem node
+    LeafNode64::kIsLeafNodeDram = isDram;
+
+    SPTree* sptree = nullptr;
+    if (isDram) {
+        // create a dram version of sptree
+        sptree = new SPTree (isDram);
+        sptree->Initialize (nullptr);
+    } else {
+        // create the pmem version
+
+        // 1. Initialize pmem library
+        bool res = RP_init ("sptree", SPTREE_PMEM_SIZE);
+        SPTreePmemRoot* sptree_pmem_root = nullptr;
+        if (res) {
+            INFO ("Prepare to recover");
+            sptree_pmem_root = RP_get_root<SPTreePmemRoot> (0);
+            int recover_res = RP_recover ();
+            if (recover_res == 1) {
+                INFO ("Dirty open, recover");
+            } else {
+                INFO ("Clean restart");
+            }
+        } else {
+            INFO ("Clean create");
+        }
+        sptree_pmem_root = (SPTreePmemRoot*)RP_malloc (sizeof (SPTreePmemRoot));
+        RP_set_root (sptree_pmem_root, 0);
+
+        sptree = new SPTree (isDram);
+        sptree->Initialize (sptree_pmem_root);
+    }
+
+    return sptree;
+}
+
+SPTree* SPTree::RecoverSPTree () {
+    // configure bottom layer leafnode as pmem
+    LeafNode64::kIsLeafNodeDram = false;
+
+    // 1. Open the pmem file
+    bool res = RP_init ("sptree", SPTREE_PMEM_SIZE);
+    if (res) {
+        INFO ("Prepare to recover");
+        RP_get_root<SPTreePmemRoot> (0);
+        int recover_res = RP_recover ();
+        if (recover_res == 1) {
+            INFO ("Dirty open, recover");
+        } else {
+            INFO ("Clean restart");
+        }
+    } else {
+        INFO ("Nothing to recover");
+        printf ("There is nothing to recover.");
+        exit (1);
+    }
+
+    // 2. obtain the bottom layer head and pmem btree
+    SPTreePmemRoot* sptree_pmem_root = RP_get_root<SPTreePmemRoot> (0);
+    SPTree* sptree = new SPTree (false);
+    sptree->Recover (sptree_pmem_root);
+    return sptree;
+}
+
+void SPTree::Initialize (SPTreePmemRoot* root) {
+    botLayer.Initialize (root);
+    topLayerPmem.Initialize (root);
     midLayer.head->leafNode = botLayer.head;
-    midLayer.head->next->leafNode = botLayer.head->next;
+    midLayer.head->next->leafNode = botLayer.head->GetNext ();
     topLayer.insert (0, midLayer.head);
 }
+
+void SPTree::Recover (SPTreePmemRoot* root) {
+    botLayer.Recover (root);
+    topLayerPmem.Recover (root);
+    // TODO: recover the top layer and middle layer
+}
+
+SPTree::SPTree (bool isDram) : botLayer (isDram), topLayerPmem (isDram), tpool (2) {}
 
 std::tuple<MLNode*, uint64_t> SPTree::jumpToMiddleLayer (key_t key) {
 retry1:
@@ -72,6 +152,8 @@ retry:
     return res ? val : 0;
 }
 
+void AsyncInsert (TopLayerPmem* pmem_tree, key_t key, void* ptr) { pmem_tree->insert (key, ptr); };
+
 bool SPTree::insert (key_t key, TID val) {
 retry:
     // 1. find the target middle layer node, and its version snapshot
@@ -103,10 +185,16 @@ retry:
         MLNode* old_next_mnode = mnode->next;
         MLNode* new_mnode = new MLNode ();
         void* newLeafNodeAddr = botLayer.Malloc (sizeof (LeafNode64));
-        auto [newLeafNode, newlkey] = mnode->leafNode->Split (
-            key, val, newLeafNodeAddr, mnode->bloomfilter, new_mnode->bloomfilter);
+        LeafNode64* newLeafNode;
+        key_t newlkey;
+        std::tie (newLeafNode, newlkey) = mnode->leafNode->Split (
+            key, val, newLeafNodeAddr, mnode->GetBloomFilter (), new_mnode->GetBloomFilter ());
 
-        // 3b. link mnode for newLeafNode
+        // 3c. enable bloom filters for both mnode and new_mnode
+        mnode->EnableBloomFilter ();
+        new_mnode->EnableBloomFilter ();
+
+        // 3d. link mnode for newLeafNode
         new_mnode->lkey = newlkey;
         new_mnode->hkey = mnode->hkey;
         new_mnode->prev = mnode;
@@ -116,8 +204,15 @@ retry:
         mnode->next = new_mnode;
         mnode->hkey = newlkey;
 
-        // 3b. insert newlkey->newNode to toplayer
+        // 3e. insert newlkey->newNode to dram toplayer
         topLayer.insert (newlkey, new_mnode);
+
+        // 3f. send jobs to background thread pool to update pmem top layer
+        if (topLayerPmem.Exist ()) {
+            tpool.submit ([this, newlkey, newLeafNode] () {
+                this->topLayerPmem.insert (newlkey, newLeafNode);
+            });
+        }
 
         mnode->lock.writeUnlock ();
         old_next_mnode->lock.writeUnlock ();
@@ -192,40 +287,11 @@ std::string SPTree::ToString () {
     return res;
 }
 
-void SPTree::DistroySPTree (void) {
-    ::remove ("/mnt/pmem/sptree_sb");
-    ::remove ("/mnt/pmem/sptree_desc");
-    ::remove ("/mnt/pmem/sptree_basemd");
-}
-
-SPTree* SPTree::CreateSPTree (bool isDram) {
-    SPTree* sptree = nullptr;
-    if (isDram) {
-        sptree = new SPTree (true);
-    } else {
-        // Initialize pmem library
-        bool res = RP_init ("sptree", SPTREE_PMEM_SIZE);
-        SPTreePmemRoot* sptree_pmem_root = nullptr;
-        if (res) {
-            INFO ("Prepare to recover");
-            sptree_pmem_root = RP_get_root<SPTreePmemRoot> (0);
-            int recover_res = RP_recover ();
-            if (recover_res == 1) {
-                INFO ("Dirty open, recover");
-            } else {
-                INFO ("Clean restart");
-            }
-        } else {
-            INFO ("Clean create");
-        }
-        sptree_pmem_root = (SPTreePmemRoot*)RP_malloc (sizeof (SPTreePmemRoot));
-        RP_set_root (sptree_pmem_root, 0);
-
-        // TODO: initialize TopLayerPmem and BottomLayer
-        sptree = new SPTree (false);
-    }
-
-    return sptree;
+std::string SPTree::ToStats () {
+    std::string toplayer_stats = topLayer.ToStats () + "\n";
+    std::string midlayer_stats = midLayer.ToStats () + "\n";
+    std::string botlayer_stats = botLayer.ToStats ();
+    return toplayer_stats + midlayer_stats + botlayer_stats;
 }
 
 }  // namespace spoton

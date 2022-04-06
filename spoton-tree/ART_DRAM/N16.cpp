@@ -7,6 +7,15 @@
 
 namespace ART_DRAM {
 
+template <typename Fn>
+void N16::DeepVisit (Stat& stat, Fn&& callback) {
+    for (int i = 0; i < count; ++i) {
+        N* node = this->children[i];
+        N::DeepVisit (node, stat, callback);
+        callback (node);
+    }
+}
+
 std::tuple<N*, uint8_t> N16::seekSmaller (uint8_t key) const {
     for (int i = count - 1; i >= 0; i--) {
         uint8_t realKey = flipSign (keys[i]);
