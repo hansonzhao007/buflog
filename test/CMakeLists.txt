@@ -26,6 +26,7 @@ db_test(test_bloomfilter)
 db_test(test_sptree_layer)
 db_test(test_sptree)
 db_exe(sptree_example)
+db_test(test_btree_pmem)
 # db_test(test_spoton_hashbuf)
 
 

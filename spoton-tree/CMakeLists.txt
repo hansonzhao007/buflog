@@ -14,9 +14,12 @@ find_package (Threads)
 
 add_library(spotontree STATIC
     ART_DRAM/Tree.cpp 
-    bottomLayer.cc
+    topLayerPmem.cc
+    topLayer.cc    
     middleLayer.cc
+    bottomLayer.cc
     sptree.cc
+
 )
 target_link_libraries(spotontree ${TbbLib} ${JemallocLib} ${CMAKE_THREAD_LIBS_INIT} ralloc)
 

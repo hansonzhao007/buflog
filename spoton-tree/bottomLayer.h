@@ -66,16 +66,15 @@ public:
     LeafNode64* head;
     bool isDram{false};
 
-public:
-    explicit BottomLayer (bool isdram) : isDram (isdram) {}
-    void* Malloc (size_t size);
+    BottomLayer (bool isdram) : isDram (isdram) {}
 
-    LeafNode64* initialize ();
+    LeafNode64* Initialize ();
+
     bool Insert (key_t key, val_t val, LeafNode64* bnode);
     bool Lookup (key_t key, val_t& val, LeafNode64* bnode);
     bool Remove (key_t key, LeafNode64* bnode);
 
-private:
+    void* Malloc (size_t size);
 };
 };  // namespace spoton
 

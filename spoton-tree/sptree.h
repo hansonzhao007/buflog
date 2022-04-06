@@ -7,7 +7,7 @@
 #include "bottomLayer.h"
 #include "middleLayer.h"
 #include "topLayer.h"
-#include "util.h"
+#include "topLayerPmem.h"
 
 // ralloc
 #include "pptr.hpp"
@@ -21,8 +21,24 @@ private:
     MiddleLayer midLayer;  // dram middle layer
     BottomLayer botLayer;  // pmem bottom layer
 
+    TopLayerPmem topLayerPmem;  // async update the pmem top layer
+
 public:
+    static constexpr size_t SPTREE_PMEM_SIZE{((128LU << 30))};
+
+    static void DistroySPTree (void);
+
+    static SPTree* CreateSPTree (bool isDram);
+
+    // recover sptree from pmem
+    // TODO
+    static SPTree* RecoverSPTree ();
+
+private:
+    // You should not call the constructor directly, use CreateSPTree instead
     SPTree (bool isDram = true);
+
+public:
     ~SPTree (){};
 
     bool insert (key_t key, TID val);
@@ -37,12 +53,6 @@ private:
     // locate the target middle layer node and its version, without lock
     std::tuple<MLNode*, uint64_t> jumpToMiddleLayer (key_t key);
 };
-
-const size_t SPTREE_PMEM_SIZE = ((100LU << 30));
-
-void DistroyBtree (void);
-
-SPTree* CreateBtree (bool isDram);
 
 };  // namespace spoton
 #endif

@@ -202,7 +202,7 @@ void* BottomLayer::Malloc (size_t size) {
     return RP_malloc (size);
 }
 
-LeafNode64* BottomLayer::initialize () {
+LeafNode64* BottomLayer::Initialize () {
     void* tmp = Malloc (sizeof (LeafNode64));
     this->head = new (tmp) LeafNode64 ();
 

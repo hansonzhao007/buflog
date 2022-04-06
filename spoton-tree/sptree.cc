@@ -2,9 +2,9 @@
 
 namespace spoton {
 
-SPTree::SPTree (bool isDram) : botLayer (isDram) {
+SPTree::SPTree (bool isDram) : botLayer (isDram), topLayerPmem (isDram) {
     // Initialize the first node in middle layer and bottom layer
-    botLayer.initialize ();
+    botLayer.Initialize ();
     midLayer.head->leafNode = botLayer.head;
     midLayer.head->next->leafNode = botLayer.head->next;
     topLayer.insert (0, midLayer.head);
@@ -192,18 +192,40 @@ std::string SPTree::ToString () {
     return res;
 }
 
-void DistroyBtree (void) {
-    remove ("/mnt/pmem/sptree_sb");
-    remove ("/mnt/pmem/sptree_desc");
-    remove ("/mnt/pmem/sptree_basemd");
+void SPTree::DistroySPTree (void) {
+    ::remove ("/mnt/pmem/sptree_sb");
+    ::remove ("/mnt/pmem/sptree_desc");
+    ::remove ("/mnt/pmem/sptree_basemd");
 }
 
-SPTree* CreateBtree (bool isDram) {
-    printf ("Create Pmem SPTree\n");
-    // Step1. Initialize pmem library
-    if (!isDram) RP_init ("sptree", SPTREE_PMEM_SIZE);
-    SPTree* btree_root = new SPTree (isDram);
-    return btree_root;
+SPTree* SPTree::CreateSPTree (bool isDram) {
+    SPTree* sptree = nullptr;
+    if (isDram) {
+        sptree = new SPTree (true);
+    } else {
+        // Initialize pmem library
+        bool res = RP_init ("sptree", SPTREE_PMEM_SIZE);
+        SPTreePmemRoot* sptree_pmem_root = nullptr;
+        if (res) {
+            INFO ("Prepare to recover");
+            sptree_pmem_root = RP_get_root<SPTreePmemRoot> (0);
+            int recover_res = RP_recover ();
+            if (recover_res == 1) {
+                INFO ("Dirty open, recover");
+            } else {
+                INFO ("Clean restart");
+            }
+        } else {
+            INFO ("Clean create");
+        }
+        sptree_pmem_root = (SPTreePmemRoot*)RP_malloc (sizeof (SPTreePmemRoot));
+        RP_set_root (sptree_pmem_root, 0);
+
+        // TODO: initialize TopLayerPmem and BottomLayer
+        sptree = new SPTree (false);
+    }
+
+    return sptree;
 }
 
 }  // namespace spoton

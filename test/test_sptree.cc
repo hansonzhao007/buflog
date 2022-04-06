@@ -12,7 +12,8 @@ using namespace spoton;
 
 class SPTreeTest : public testing::Test {
 public:
-    SPTreeTest () { tree_ = new SPTree (); }
+    SPTreeTest () { tree_ = spoton::SPTree::CreateSPTree (true); }
+    ~SPTreeTest () { delete tree_; }
     SPTree* tree_;
 
     void Load (size_t num) {

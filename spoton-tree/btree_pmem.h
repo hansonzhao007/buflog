@@ -34,7 +34,13 @@
 #include "pptr.hpp"
 #include "ralloc.hpp"
 
+namespace spoton {
 const size_t FASTFAIR_PMEM_SIZE = ((100LU << 30));
+
+#define UNUSED(expr)  \
+    do {              \
+        (void)(expr); \
+    } while (0)
 
 #define PAGESIZE 512
 
@@ -44,7 +50,7 @@ const size_t FASTFAIR_PMEM_SIZE = ((100LU << 30));
 
 using entry_key_t = int64_t;
 
-pthread_mutex_t print_mtx;
+pthread_mutex_t spoton_btree_pmem_print_mtx;
 
 using namespace std;
 
@@ -61,21 +67,29 @@ inline void clflush (char* data, int len) {
 class page;
 
 class btree {
-private:
+public:
     int height;
     pptr<page> root;
     btree ();
 
 public:
     ~btree () { RP_close (); }
-    friend btree* CreateBtree (void);
+    static btree* CreateBtree (void);
+    static btree* RecoverBtree ();
+    static void DistroyBtree ();
+
     void setNewRoot (page*);
     void getNumberOfNodes ();
     void btree_insert (entry_key_t, char*);
+
     void btree_insert_internal (char*, entry_key_t, char*, uint32_t);
     void btree_delete (entry_key_t);
     void btree_delete_internal (entry_key_t, char*, uint32_t, entry_key_t*, bool*, page**);
+
     char* btree_search (entry_key_t);
+    // find the key that is <= search_key
+    void* btree_seekLE (entry_key_t search_key);
+
     void btree_search_range (entry_key_t, entry_key_t, unsigned long*);
     void printAll ();
     void recoverMutex ();
@@ -216,7 +230,9 @@ public:
         return shift;
     }
 
-    bool remove (btree* bt, entry_key_t key, bool only_rebalance = false, bool with_lock = true) {
+    bool remove (entry_key_t key, bool only_rebalance = false, bool with_lock = true) {
+        UNUSED (only_rebalance);
+        UNUSED (with_lock);
         hdr.mtx->lock ();
 
         bool ret = remove_key (key);
@@ -300,7 +316,7 @@ public:
             if (!with_lock) {
                 hdr.sibling_ptr->hdr.mtx->lock ();
             }
-            hdr.sibling_ptr->remove (bt, hdr.sibling_ptr->records[0].key, true, with_lock);
+            hdr.sibling_ptr->remove (hdr.sibling_ptr->records[0].key, true, with_lock);
             if (!with_lock) {
                 hdr.sibling_ptr->hdr.mtx->unlock ();
             }
@@ -542,6 +558,7 @@ public:
     // Insert a new key - FAST and FAIR
     page* store (btree* bt, char* left, entry_key_t key, char* right, bool flush, bool with_lock,
                  page* invalid_sibling = nullptr) {
+        UNUSED (left);
         if (with_lock) {
             hdr.mtx->lock ();  // Lock the write lock
         }
@@ -726,6 +743,69 @@ public:
         }
     }
 
+    // search a key <= key in leaf node
+    char* seekLE (entry_key_t key) {
+        assert (hdr.leftmost_ptr == nullptr);
+        int i = 1;
+        uint8_t previous_switch_counter;
+        char* ret = nullptr;
+        char* t;
+        entry_key_t k;
+        do {
+            previous_switch_counter = hdr.switch_counter;
+            ret = nullptr;
+
+            if (IS_FORWARD (previous_switch_counter)) {
+                // smaller than first key
+                if (key < (k = records[0].key)) {
+                    break;
+                }
+
+                for (i = 1; records[i].ptr != nullptr; ++i) {
+                    if (key < (k = records[i].key)) {
+                        if ((t = records[i - 1].ptr) != records[i].ptr) {
+                            ret = t;
+                            break;
+                        }
+                    }
+                }
+
+                if (!ret) {
+                    ret = records[i - 1].ptr;
+                    continue;
+                }
+            } else {  // search from right to left
+                for (i = count () - 1; i >= 0; --i) {
+                    if (key >= (k = records[i].key)) {
+                        if (i == 0) {
+                            page* lptr = hdr.leftmost_ptr;
+                            if ((char*)lptr != (t = records[i].ptr)) {
+                                ret = t;
+                                break;
+                            }
+                        } else {
+                            if (records[i - 1].ptr != (t = records[i].ptr)) {
+                                ret = t;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } while (hdr.switch_counter != previous_switch_counter);
+
+        page* sptr = hdr.sibling_ptr;
+        if ((t = (char*)sptr) != nullptr) {
+            if (key >= ((page*)t)->records[0].key) return t;
+        }
+
+        if (ret) {
+            return ret;
+        }
+
+        return nullptr;
+    }
+
     char* linear_search (entry_key_t key) {
         int i = 1;
         uint8_t previous_switch_counter;
@@ -858,9 +938,9 @@ public:
     // print a node
     void print () {
         if (hdr.leftmost_ptr == nullptr)
-            printf ("[%d] leaf %x \n", this->hdr.level, this);
+            printf ("[%u] leaf %lx \n", this->hdr.level, (size_t)this);
         else
-            printf ("[%d] internal %x \n", this->hdr.level, this);
+            printf ("[%u] internal %lx \n", this->hdr.level, (size_t)this);
         printf ("last_index: %d\n", hdr.last_index);
         printf ("switch_counter: %d\n", hdr.switch_counter);
         printf ("search direction: ");
@@ -871,16 +951,16 @@ public:
 
         if (hdr.leftmost_ptr != nullptr) {
             page* lptr = hdr.leftmost_ptr;
-            printf ("%x ", lptr);
+            printf ("%lx ", (size_t)lptr);
         }
 
         for (int i = 0; records[i].ptr != nullptr; ++i) {
             char* rptr = records[i].ptr;
-            printf ("%ld,%x ", records[i].key, rptr);
+            printf ("%ld,%lx ", records[i].key, (size_t)rptr);
         }
 
         page* sptr = hdr.sibling_ptr;
-        printf ("%x ", sptr);
+        printf ("%lx ", (size_t)sptr);
 
         printf ("\n");
     }
@@ -909,13 +989,13 @@ public:
 //   height = 1;
 // }
 
-void DistroyBtree (void) {
+void btree::DistroyBtree (void) {
     remove ("/mnt/pmem/fastfair_sb");
     remove ("/mnt/pmem/fastfair_desc");
     remove ("/mnt/pmem/fastfair_basemd");
 }
 
-btree* CreateBtree (void) {
+btree* btree::CreateBtree (void) {
     printf ("Create Pmem Fast&Fair\n");
     // Step1. Initialize pmem library
     bool res = RP_init ("fastfair", FASTFAIR_PMEM_SIZE);
@@ -942,7 +1022,7 @@ btree* CreateBtree (void) {
     return btree_root;
 }
 
-btree* RecoverBtree (void) {
+btree* btree::RecoverBtree (void) {
     // Step1. Open the pmem file
     bool res = RP_init ("fastfair", FASTFAIR_PMEM_SIZE);
 
@@ -971,6 +1051,17 @@ void btree::setNewRoot (page* new_root) {
     ++height;
 }
 
+void* btree::btree_seekLE (entry_key_t key) {
+    page* p = (page*)root;
+
+    // if hdr.leaftmost_ptr == nullptr, it is a leafnode
+    // search until a leaf node
+    while (p->hdr.leftmost_ptr != nullptr) {
+        p = (page*)p->linear_search (key);
+    }
+    return p->seekLE (key);
+}
+
 char* btree::btree_search (entry_key_t key) {
     page* p = (page*)root;
 
@@ -987,7 +1078,7 @@ char* btree::btree_search (entry_key_t key) {
     }
 
     if (!t) {
-        printf ("NOT FOUND %lu, t = %x\n", key, t);
+        // printf ("NOT FOUND %lu, t = %x\n", key, t);
         return nullptr;
     }
 
@@ -1035,7 +1126,7 @@ void btree::btree_delete (entry_key_t key) {
     }
 
     if (p) {
-        if (!p->remove (this, key)) {
+        if (!p->remove (key)) {
             btree_delete (key);
         }
     } else {
@@ -1072,7 +1163,7 @@ void btree::btree_delete_internal (entry_key_t key, char* ptr, uint32_t level,
                 if ((char*)lptr != p->records[i].ptr) {
                     *deleted_key = p->records[i].key;
                     *left_sibling = p->hdr.leftmost_ptr;
-                    p->remove (this, *deleted_key, false, false);
+                    p->remove (*deleted_key, false, false);
                     break;
                 }
             } else {
@@ -1080,7 +1171,7 @@ void btree::btree_delete_internal (entry_key_t key, char* ptr, uint32_t level,
                     *deleted_key = p->records[i].key;
                     char* rptr = p->records[i - 1].ptr;
                     *left_sibling = (page*)rptr;
-                    p->remove (this, *deleted_key, false, false);
+                    p->remove (*deleted_key, false, false);
                     break;
                 }
             }
@@ -1108,10 +1199,10 @@ void btree::btree_search_range (entry_key_t min, entry_key_t max, unsigned long*
 }
 
 void btree::printAll () {
-    pthread_mutex_lock (&print_mtx);
+    pthread_mutex_lock (&spoton_btree_pmem_print_mtx);
     int total_keys = 0;
     page* leftmost = (page*)root;
-    printf ("root: %x\n", leftmost);
+    printf ("root: %lx\n", (size_t)leftmost);
     do {
         page* sibling = leftmost;
         while (sibling) {
@@ -1126,7 +1217,7 @@ void btree::printAll () {
     } while (leftmost);
 
     printf ("total number of keys: %d\n", total_keys);
-    pthread_mutex_unlock (&print_mtx);
+    pthread_mutex_unlock (&spoton_btree_pmem_print_mtx);
 }
 
 void btree::recoverMutex () {
@@ -1145,7 +1236,7 @@ void btree::recoverMutex () {
     } while (leftmost);
 
     printf ("Recoverd keys: %d\n", total_keys);
-    pthread_mutex_unlock (&print_mtx);
+    pthread_mutex_unlock (&spoton_btree_pmem_print_mtx);
 }
-
+}  // namespace spoton
 #endif

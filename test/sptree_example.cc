@@ -7,63 +7,6 @@ using namespace std;
 
 #include "spoton-tree/sptree.h"
 
-void singlethreaded (char** argv) {
-    std::cout << "single threaded:" << std::endl;
-
-    uint64_t n = std::atoll (argv[1]);
-    uint64_t* keys = new uint64_t[n];
-
-    // Generate keys
-    for (uint64_t i = 0; i < n; i++)
-        // dense, sorted
-        keys[i] = i + 1;
-    if (atoi (argv[2]) == 1)
-        // dense, random
-        std::random_shuffle (keys, keys + n);
-    if (atoi (argv[2]) == 2)
-        // "pseudo-sparse" (the most-significant leaf bit gets lost)
-        for (uint64_t i = 0; i < n; i++)
-            keys[i] = (static_cast<uint64_t> (rand ()) << 32) | static_cast<uint64_t> (rand ());
-
-    printf ("operation,n,ops/s\n");
-    spoton::SPTree tree;
-
-    // Build tree
-    {
-        auto starttime = std::chrono::system_clock::now ();
-        for (uint64_t i = 0; i != n; i++) {
-            tree.insert (keys[i], keys[i]);
-        }
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
-            std::chrono::system_clock::now () - starttime);
-        printf ("insert,%ld,%f\n", n, (n * 1.0) / duration.count ());
-    }
-
-    {
-        // Lookup
-        auto starttime = std::chrono::system_clock::now ();
-        tbb::parallel_for (tbb::blocked_range<uint64_t> (0, n),
-                           [&] (const tbb::blocked_range<uint64_t>& range) {
-                               for (uint64_t i = range.begin (); i != range.end (); i++) {
-                                   auto val = tree.lookup (keys[i]);
-                                   if (val != keys[i]) {
-                                       val = tree.lookup (keys[i]);
-                                       std::cout << "wrong key read: " << val
-                                                 << " expected:" << keys[i] << std::endl;
-                                       throw;
-                                   }
-                               }
-                           });
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
-            std::chrono::system_clock::now () - starttime);
-        printf ("lookup,%ld,%f\n", n, (n * 1.0) / duration.count ());
-    }
-
-    delete[] keys;
-
-    std::cout << std::endl;
-}
-
 void multithreaded (char** argv) {
     std::cout << "multi threaded:" << std::endl;
 
@@ -83,7 +26,7 @@ void multithreaded (char** argv) {
             keys[i] = (static_cast<uint64_t> (rand ()) << 30) | static_cast<uint32_t> (rand ());
 
     printf ("operation,n,ops/s\n");
-    spoton::SPTree tree;
+    spoton::SPTree* tree = spoton::SPTree::CreateSPTree (true);
 
     // Build tree
     {
@@ -91,7 +34,7 @@ void multithreaded (char** argv) {
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, n),
                            [&] (const tbb::blocked_range<uint64_t>& range) {
                                for (uint64_t i = range.begin (); i != range.end (); i++) {
-                                   tree.insert (keys[i], keys[i]);
+                                   tree->insert (keys[i], keys[i]);
                                }
                            });
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
@@ -105,9 +48,9 @@ void multithreaded (char** argv) {
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, n),
                            [&] (const tbb::blocked_range<uint64_t>& range) {
                                for (uint64_t i = range.begin (); i != range.end (); i++) {
-                                   auto val = tree.lookup (keys[i]);
+                                   auto val = tree->lookup (keys[i]);
                                    if (val != keys[i]) {
-                                       val = tree.lookup (keys[i]);
+                                       val = tree->lookup (keys[i]);
                                        std::cout << "wrong key read: " << val
                                                  << " expected:" << keys[i] << std::endl;
                                    }
@@ -124,7 +67,7 @@ void multithreaded (char** argv) {
         tbb::parallel_for (tbb::blocked_range<uint64_t> (0, n),
                            [&] (const tbb::blocked_range<uint64_t>& range) {
                                for (uint64_t i = range.begin (); i != range.end (); i++) {
-                                   tree.remove (keys[i]);
+                                   tree->remove (keys[i]);
                                }
                            });
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (

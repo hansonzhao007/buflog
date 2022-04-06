@@ -1,7 +1,7 @@
 // #include "FAST_FAIR/btree_pmem_buflog.h"
 #include <iostream>
 
-#include "FAST_FAIR/btree_pmem.h"
+#include "spoton-tree/btree_pmem.h"
 #include "test_util.h"
 
 // ralloc
@@ -15,6 +15,7 @@ using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
 util::RandomGenerator gen;
+using namespace spoton;
 
 // For hash table
 DEFINE_uint32 (num, 5000000, "number of input");
@@ -34,8 +35,8 @@ int main (int argc, char* argv[]) {
 
     if (FLAGS_mode == "insert") {
 #if defined __BTREE_PMEM_H || defined __BTREE_PMEM_BUFLOG_H
-        DistroyBtree ();
-        bt = CreateBtree ();
+        btree::DistroyBtree ();
+        bt = btree::CreateBtree ();
 #else
         bt = new btree ();
 #endif
@@ -110,7 +111,7 @@ int main (int argc, char* argv[]) {
 
     } else if (FLAGS_mode == "recover") {
 #if defined __BTREE_PMEM_H || defined __BTREE_PMEM_BUFLOG_H
-        bt = RecoverBtree ();
+        bt = btree::RecoverBtree ();
 #else
         break;
 #endif

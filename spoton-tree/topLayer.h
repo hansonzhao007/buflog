@@ -13,11 +13,6 @@ static void loadKey (TID tid, Key& key) {
     reinterpret_cast<uint64_t*> (&key[0])[0] = __builtin_bswap64 (minKey);
 }
 
-static void setKey (Key& key, size_t k) {
-    key.setKeyLen (sizeof (k));
-    reinterpret_cast<uint64_t*> (&key[0])[0] = __builtin_bswap64 (k);
-}
-
 class TopLayer {
 public:
     ART_DRAM::Tree* tree_dram;
@@ -31,35 +26,15 @@ public:
 
     ~TopLayer () { delete tree_dram; }
 
-    // insert the minKey->leafnode_ptr
-    bool insert (size_t minkey, void* leafnode_ptr) {
-        auto tinfo = tree_dram->getThreadInfo ();
-        Key insertKey;
-        setKey (insertKey, minkey);
-        tree_dram->insert (insertKey, reinterpret_cast<uint64_t> (leafnode_ptr), tinfo);
-        return true;
-    }
+    // insert the minKey->middle layer pointer
+    bool insert (size_t minkey, void* mlptr);
 
     // return the leafnode pointer whose minKey <= key
     // however, it is not gurranteed that the returned node has minKey <= key,
     // that's why we have `FindTargetMLNode` in MiddleLayer class to fix the issue.
-    void* seekLE (size_t key) {
-        auto tinfo = tree_dram->getThreadInfo ();
-        Key skey;
-        setKey (skey, key);
-        auto tid = tree_dram->seekLE (skey, tinfo);
-        if (tid != 0) {
-            return reinterpret_cast<void*> (tid);
-        }
-        return nullptr;
-    }
+    void* seekLE (size_t key);
 
-    void remove (size_t key, void* leafnode_ptr) {
-        auto tinfo = tree_dram->getThreadInfo ();
-        Key rkey;
-        setKey (rkey, key);
-        tree_dram->remove (rkey, reinterpret_cast<uint64_t> (leafnode_ptr), tinfo);
-    }
+    void remove (size_t key, void* leafnode_ptr);
 };
 };  // namespace spoton
 

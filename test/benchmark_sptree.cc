@@ -472,12 +472,11 @@ public:
             }
 
             if (fresh_db) {
-                spoton::DistroyBtree ();
-                tree_ = spoton::CreateBtree (FLAGS_dram);
+                spoton::SPTree::DistroySPTree ();
+                tree_ = spoton::SPTree::CreateSPTree (FLAGS_dram);
             }
 
             // CreateLogFile ();
-
             if (FLAGS_dram) {
                 if (method != nullptr) RunBenchmark (thread, name, method, print_hist);
             } else {

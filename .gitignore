@@ -7,3 +7,5 @@
 **/ycsb_bench
 lib/ralloc/test
 ipm_*.txt
+**/*.pdf
+**/*.parse
