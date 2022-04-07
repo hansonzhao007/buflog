@@ -6,11 +6,13 @@
 #include "ralloc.hpp"
 
 namespace spoton {
+constexpr size_t kSPTreeMinKey = 1;
 class btree;
 class LeafNode64;
 struct SPTreePmemRoot {
     pptr<btree> topLayerPmemBtree_tree_pmem;
     pptr<LeafNode64> bottomLayerLeafNode64_head;
+    pptr<LeafNode64> bottomLayerLeafNode64_dummyTail;
 };
 
 class LeafNodeBitSet {

@@ -36,7 +36,7 @@ echo "thread,fastfair,pactree,sptree" >> $outfile_read_bw_w
 echo "thread,fastfair,pactree,sptree" >> $outfile_readnon_bw_r
 echo "thread,fastfair,pactree,sptree" >> $outfile_readnon_bw_w
 
-for t in 4 8 16 20 24 28 32 36 40
+for t in 1 2 4 8 16 20 24 28 32 36 40
 do
     # parse the throughput
     oneline_load="$t"
@@ -49,7 +49,7 @@ do
         tmp=`cat $datafile | grep "load         :" | awk '{print$5}'`
         oneline_load="$oneline_load,$tmp"   
 
-        tmp=`cat $datafile | grep "readall      :" | awk '{print$5}'`
+        tmp=`cat $datafile | grep "readrandom   :" | awk '{print$5}'`
         oneline_read="$oneline_read,$tmp"  
 
         tmp=`cat $datafile | grep "readnon      :" | awk '{print$5}'`
@@ -75,7 +75,7 @@ do
         # load        
         oneline_load="$oneline_load,${arr[0]}"   
 
-        # readall
+        # readrandom
         oneline_read="$oneline_read,${arr[1]}"
 
         # readnon
@@ -101,7 +101,7 @@ do
         # load        
         oneline_load="$oneline_load,${arr[0]}"   
 
-        # readall
+        # readrandom
         oneline_read="$oneline_read,${arr[1]}"
 
         # readnon
@@ -127,7 +127,7 @@ do
         # load        
         oneline_load="$oneline_load,${arr[0]}"   
 
-        # readall
+        # readrandom
         oneline_read="$oneline_read,${arr[1]}"
 
         # readnon
@@ -153,7 +153,7 @@ do
         # load        
         oneline_load="$oneline_load,${arr[0]}"   
 
-        # readall
+        # readrandom
         oneline_read="$oneline_read,${arr[1]}"
 
         # readnon

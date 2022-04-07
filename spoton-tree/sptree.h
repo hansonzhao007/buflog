@@ -17,7 +17,7 @@
 namespace spoton {
 
 class SPTree {
-private:
+public:
     TopLayer topLayer;          // dram top layer
     MiddleLayer midLayer;       // dram middle layer
     BottomLayer botLayer;       // pmem bottom layer
@@ -32,8 +32,9 @@ public:
     static SPTree* CreateSPTree (bool isDram);
 
     // recover sptree from pmem
-    // TODO
     static SPTree* RecoverSPTree ();
+
+    void WaitAllJobs ();
 
 private:
     // You should not call the constructor directly, use CreateSPTree instead
@@ -42,7 +43,7 @@ private:
     void Recover (SPTreePmemRoot*);
 
 public:
-    ~SPTree (){};
+    ~SPTree ();
 
     bool insert (key_t key, TID val);
     bool update (key_t key, TID val);

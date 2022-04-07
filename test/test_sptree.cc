@@ -9,10 +9,10 @@
 using namespace std;
 using namespace spoton;
 
-class SPTreeTest : public testing::Test {
+class SPTreeDramTest : public testing::Test {
 public:
-    SPTreeTest () { tree_ = spoton::SPTree::CreateSPTree (true); }
-    ~SPTreeTest () { delete tree_; }
+    SPTreeDramTest () { tree_ = spoton::SPTree::CreateSPTree (true); }
+    ~SPTreeDramTest () { delete tree_; }
     SPTree* tree_;
 
     void Load (size_t num) {
@@ -37,7 +37,42 @@ public:
     std::vector<size_t> keys;
 };
 
-TEST_F (SPTreeTest, Basic64) {
+class SPTreePmemTest : public testing::Test {
+public:
+    SPTreePmemTest () {}
+    ~SPTreePmemTest () {}
+
+    void Create () { tree_ = spoton::SPTree::CreateSPTree (false); }
+
+    void Destroy () {
+        if (tree_) delete tree_;
+        spoton::SPTree::DistroySPTree ();
+    }
+    SPTree* tree_{nullptr};
+
+    void Load (size_t num) {
+        for (size_t i = 1; i <= num; i++) {
+            tree_->insert (i, i);
+        }
+    }
+
+    void LoadRandom (size_t num) {
+        keys.clear ();
+        std::unordered_set<uint64_t> uniquekeys;
+        for (size_t i = 0; i < num; i++) {
+            size_t key = random ();
+            while (uniquekeys.count (key) != 0) {
+                key = random ();
+            }
+            tree_->insert (key, key);
+            keys.push_back (key);
+            uniquekeys.insert (key);
+        }
+    }
+    std::vector<size_t> keys;
+};
+
+TEST_F (SPTreeDramTest, Basic64) {
     size_t num = 64;
     Load (num);
 
@@ -47,7 +82,7 @@ TEST_F (SPTreeTest, Basic64) {
     }
 }
 
-TEST_F (SPTreeTest, Basic65) {
+TEST_F (SPTreeDramTest, Basic65) {
     size_t num = 65;
     Load (num);
 
@@ -57,7 +92,7 @@ TEST_F (SPTreeTest, Basic65) {
     }
 }
 
-TEST_F (SPTreeTest, Basic) {
+TEST_F (SPTreeDramTest, Basic) {
     size_t num = 100000;
     Load (num);
 
@@ -67,7 +102,7 @@ TEST_F (SPTreeTest, Basic) {
     }
 }
 
-TEST_F (SPTreeTest, RandomInsert) {
+TEST_F (SPTreeDramTest, RandomInsert) {
     size_t num = 100000;
     LoadRandom (num);
 
@@ -77,7 +112,7 @@ TEST_F (SPTreeTest, RandomInsert) {
     }
 }
 
-TEST_F (SPTreeTest, RandomInsertAndRemove) {
+TEST_F (SPTreeDramTest, RandomInsertAndRemove) {
     size_t num = 100000;
     LoadRandom (num);
 
@@ -100,6 +135,21 @@ TEST_F (SPTreeTest, RandomInsertAndRemove) {
             tree_->lookup (keys[i]);
         }
     }
+}
+
+TEST_F (SPTreePmemTest, LoadRecover) {
+    Destroy ();
+    Create ();
+    size_t num = 1000;
+    Load (num);
+    for (size_t i = 1; i <= num; i++) {
+        TID tid = tree_->lookup (i);
+        ASSERT_EQ (tid, i);
+    }
+    // close pmem
+    delete tree_;
+
+    tree_ = spoton::SPTree::RecoverSPTree ();
 }
 
 int main (int argc, char** argv) {

@@ -42,6 +42,7 @@ DEFINE_uint64 (write, 5 * 1000000, "Number of read operations");
 DEFINE_bool (hist, false, "");
 DEFINE_string (benchmarks, "load,readall", "");
 DEFINE_bool (dram, false, "use dram leafnode");
+DEFINE_bool (is_seq_trace, false, "trace is sequential or not");
 
 using namespace util;
 
@@ -386,7 +387,7 @@ public:
     void Run () {
         trace_size_ = FLAGS_num;
         printf ("key trace size: %lu\n", trace_size_);
-        key_trace_ = new RandomKeyTrace (trace_size_);
+        key_trace_ = new RandomKeyTrace (trace_size_, FLAGS_is_seq_trace);
         if (reads_ == 0) {
             reads_ = key_trace_->count_;
         }
@@ -410,6 +411,10 @@ public:
             if (name == "load") {
                 fresh_db = true;
                 method = &Benchmark::DoWrite;
+            } else if (name == "recover") {
+                fresh_db = false;
+                thread = 1;
+                method = &Benchmark::DoRecover;
             } else if (name == "delete") {
                 fresh_db = false;
                 key_trace_->Randomize ();
@@ -658,6 +663,15 @@ public:
         INFO ("(num: %lu, deleted: %lu)", interval, deleted);
         thread->stats.AddMessage (buf);
         return;
+    }
+
+    void DoRecover (ThreadState* thread) {
+        // recover sptree
+        auto starttime = std::chrono::system_clock::now ();
+        tree_ = spoton::SPTree::RecoverSPTree ();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
+            std::chrono::system_clock::now () - starttime);
+        printf ("recover time: %f s.\n", duration.count () / 1000000.0);
     }
 
     void DoWrite (ThreadState* thread) {

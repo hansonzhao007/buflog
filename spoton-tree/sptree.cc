@@ -1,12 +1,17 @@
 #include "sptree.h"
 
 #include "sptree_meta.h"
+
 namespace spoton {
 
 void SPTree::DistroySPTree (void) {
-    ::remove ("/mnt/pmem/sptree_sb");
-    ::remove ("/mnt/pmem/sptree_desc");
-    ::remove ("/mnt/pmem/sptree_basemd");
+    for (const std::string& file :
+         {"/mnt/pmem/sptree_sb", "/mnt/pmem/sptree_desc", "/mnt/pmem/sptree_basemd"}) {
+        bool res = ::remove (file.c_str ());
+        if (res != 0) {
+            perror ("can remove file\n");
+        }
+    }
 }
 
 SPTree* SPTree::CreateSPTree (bool isDram) {
@@ -75,20 +80,95 @@ SPTree* SPTree::RecoverSPTree () {
 }
 
 void SPTree::Initialize (SPTreePmemRoot* root) {
+    // pmem layers
     botLayer.Initialize (root);
     topLayerPmem.Initialize (root);
+    if (!LeafNode64::kIsLeafNodeDram) {
+        // pmem mode
+        topLayerPmem.insert (kSPTreeMinKey, botLayer.head);
+    }
+    // dram layers
     midLayer.head->leafNode = botLayer.head;
     midLayer.head->next->leafNode = botLayer.head->GetNext ();
-    topLayer.insert (0, midLayer.head);
+    topLayer.insert (kSPTreeMinKey, midLayer.head);
 }
 
+struct RecoverUnit {
+    key_t minKey;
+    key_t lkey;
+    key_t hkey;
+    MLNode* mnode;
+    LeafNode64* leafnode;
+    RecoverUnit (key_t _mk, key_t _lk, key_t _hk, MLNode* _mn, LeafNode64* _lf)
+        : minKey (_mk), lkey (_lk), hkey (_hk), mnode (_mn), leafnode (_lf) {}
+};
 void SPTree::Recover (SPTreePmemRoot* root) {
+    // obtain the bottom layer pmem head LeafNode64
     botLayer.Recover (root);
+    // obtain the pmem btree
     topLayerPmem.Recover (root);
-    // TODO: recover the top layer and middle layer
+
+    // rebuild the top layer and middle layer
+    thread_pool pool (std::thread::hardware_concurrency () / 2);
+    // 1. Iterate the leaf page of pmem btree
+    std::vector<RecoverUnit> units;
+    topLayerPmem.ScanAllRecord ([&units] (key_t key, void* leafnode_ptr) {
+        DEBUG ("scan top key %lu", key);
+        assert (key != 0);
+        units.emplace_back (RecoverUnit (key, 0LU, 0LU, new MLNode (),
+                                         reinterpret_cast<LeafNode64*> (leafnode_ptr)));
+    });
+    INFO ("Recover %lu leaf node from pmem btree", units.size ());
+    // 2. recover top layer dram
+    for (size_t i = 0; i < units.size (); i++) {
+        RecoverUnit& unit = units[i];
+        pool.submit ([&unit, this] () {
+            // insert top layer record
+            DEBUG ("recover top layer key %lu, mnode ptr: 0x%lx", unit.minKey, unit.mnode);
+            this->topLayer.insert (unit.minKey, unit.mnode);
+        });
+
+        pool.submit ([&unit] () {
+            // recover the middle layer node, lkey, hkey
+            uint64_t* lhkeys = reinterpret_cast<uint64_t*> (unit.leafnode);
+            unit.mnode->lkey = lhkeys[0];
+            unit.mnode->hkey = lhkeys[1];
+            unit.mnode->leafNode = unit.leafnode;
+            // DEBUG ("recover lkey %lu, hkey %lu", lhkeys[0], lhkeys[1]);
+        });
+    }
+    // 3. rebuild the middle layer (connect mnodes together)
+    MLNode* prev = nullptr;
+    MLNode* head = nullptr;
+    size_t mnode_count = 0;
+    for (auto& u : units) {
+        u.mnode->prev = prev;
+        if (!prev) {
+            head = u.mnode;
+        } else {
+            prev->next = u.mnode;
+        }
+        prev = u.mnode;
+        mnode_count++;
+    }
+    INFO ("Create %lu mnodes", mnode_count);
+    midLayer.head = head;
+    prev->next = midLayer.dummyTail;
+    midLayer.dummyTail->prev = prev;
+    // wait until all finished
+    pool.wait_for_tasks ();
+}
+
+void SPTree::WaitAllJobs () {
+    // wait all jobs in tpool to finish
+    tpool.wait_for_tasks ();
 }
 
 SPTree::SPTree (bool isDram) : botLayer (isDram), topLayerPmem (isDram), tpool (2) {}
+
+SPTree::~SPTree () {
+    if (!LeafNode64::kIsLeafNodeDram) RP_close ();
+};
 
 std::tuple<MLNode*, uint64_t> SPTree::jumpToMiddleLayer (key_t key) {
 retry1:
@@ -210,6 +290,7 @@ retry:
         // 3f. send jobs to background thread pool to update pmem top layer
         if (topLayerPmem.Exist ()) {
             tpool.submit ([this, newlkey, newLeafNode] () {
+                // DEBUG ("pmem btree insert %lu", newlkey);
                 this->topLayerPmem.insert (newlkey, newLeafNode);
             });
         }

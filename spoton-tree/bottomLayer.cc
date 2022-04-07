@@ -250,7 +250,7 @@ void BottomLayer::Initialize (SPTreePmemRoot* root) {
     tmp = Malloc (sizeof (LeafNode64));
     LeafNode64* dummyTail = new (tmp) LeafNode64 ();
 
-    head->lkey = 0;
+    head->lkey = kSPTreeMinKey;
     head->hkey = UINT64_MAX;
 
     head->SetPrev (nullptr);
@@ -268,6 +268,7 @@ void BottomLayer::Initialize (SPTreePmemRoot* root) {
             exit (1);
         }
         root->bottomLayerLeafNode64_head = this->head;
+        root->bottomLayerLeafNode64_dummyTail = dummyTail;
     }
     INFO ("Initial first leafnode 0x%lx, lkey: %lu, hkey: %lu", (uint64_t)this->head, head->lkey,
           head->hkey);
@@ -288,12 +289,15 @@ bool BottomLayer::Remove (key_t key, LeafNode64* bnode) { return bnode->Remove (
 std::string BottomLayer::ToStats () {
     LeafNode64* cur = head;
     size_t total_size = 0;
+    size_t total_count = 0;
     while (cur) {
         total_size += sizeof (LeafNode64);
         cur = cur->GetNext ();
+        total_count++;
     }
     char buffer[128];
-    sprintf (buffer, "Bottome Layer Size: %f MB", total_size / 1024.0 / 1024.0);
+    sprintf (buffer, "Bottome Layer Size: %f MB. count: %lu", total_size / 1024.0 / 1024.0,
+             total_count);
     return buffer;
 }
 

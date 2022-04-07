@@ -94,10 +94,12 @@ def PlotScalability():
     
     # Plot IO
     Plot("scalability_load_io.parse", "scalability_load_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    Plot("scalability_load_io_r.parse", "scalability_load_io_r.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    Plot("scalability_load_io_w.parse", "scalability_load_io_w.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+
     Plot("scalability_read_io.parse", "scalability_read_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
     Plot("scalability_readnon_io.parse", "scalability_readnon_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
-    # Plot("scalability_load_io_r.parse", "scalability_load_io_r.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
-    # Plot("scalability_load_io_w.parse", "scalability_load_io_w.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    
 
     # Plot bw
     Plot("scalability_load_bw.parse", "scalability_load_bw.pdf", -4, "", "Pmem Bandwidth (GB/s)", 1024.0)

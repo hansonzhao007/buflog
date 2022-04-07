@@ -25,6 +25,7 @@
 #include <cassert>
 #include <climits>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <mutex>
@@ -65,7 +66,7 @@ inline void clflush (char* data, int len) {
 }
 
 class page;
-
+using RecoverCallbackFn = std::function<void (key_t key, void* ptr)>;
 class btree {
 public:
     int height;
@@ -92,6 +93,7 @@ public:
 
     void btree_search_range (entry_key_t, entry_key_t, unsigned long*);
     void printAll ();
+    void scan_all_record (RecoverCallbackFn func);
     void recoverMutex ();
 
     std::string ToStats ();
@@ -1236,6 +1238,26 @@ void btree::printAll () {
     pthread_mutex_unlock (&spoton_btree_pmem_print_mtx);
 }
 
+void btree::scan_all_record (RecoverCallbackFn func) {
+    page* leftmost = (page*)root;
+    page* prev = nullptr;
+    while (leftmost) {
+        prev = leftmost;
+        leftmost = leftmost->hdr.leftmost_ptr;
+    }
+
+    // now prev is the first leaf page
+    page* sibling = prev;
+    while (sibling) {
+        for (int i = 0; sibling->records[i].ptr != nullptr; i++) {
+            char* rptr = sibling->records[i].ptr;
+            size_t key = sibling->records[i].key;
+            func (key, rptr);
+        }
+        sibling = sibling->hdr.sibling_ptr;
+    }
+}
+
 void btree::recoverMutex () {
     int total_keys = 0;
     page* leftmost = (page*)root;
@@ -1256,9 +1278,24 @@ void btree::recoverMutex () {
 }
 
 std::string btree::ToStats () {
-    size_t total_size = root->TotalSize ();
+    size_t total_size = 0;  // root->TotalSize ();
+    size_t total_keys = 0;
+    page* leftmost = (page*)root;
+    do {
+        page* sibling = leftmost;
+        while (sibling) {
+            if (sibling->hdr.level == 0) {
+                total_keys += sibling->hdr.last_index + 1;
+            }
+            sibling = sibling->hdr.sibling_ptr;
+            total_size += sizeof (*sibling);
+        }
+        leftmost = leftmost->hdr.leftmost_ptr;
+    } while (leftmost);
+
     char buffer[128];
-    sprintf (buffer, "Pmem Btree Size: %f MB", total_size / 1024.0 / 1024.0);
+    sprintf (buffer, "Pmem Btree Size: %f MB. key count: %lu", total_size / 1024.0 / 1024.0,
+             total_keys);
     return buffer;
 }
 

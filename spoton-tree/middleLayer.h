@@ -114,6 +114,7 @@ public:
 class MiddleLayer {
 public:
     MLNode* head;
+    MLNode* dummyTail;
 
 public:
     MiddleLayer ();

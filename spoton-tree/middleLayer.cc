@@ -50,9 +50,9 @@ bool BloomFilterFix64::couldExist (const void* addr, size_t len) {
 
 MiddleLayer::MiddleLayer () {
     head = new MLNode ();
-    auto dummyTail = new MLNode ();
+    dummyTail = new MLNode ();
 
-    head->lkey = 0;
+    head->lkey = kSPTreeMinKey;
     head->hkey = UINT64_MAX;
 
     head->prev = nullptr;
@@ -99,12 +99,16 @@ MLNode* MiddleLayer::FindTargetMLNode (key_t key, MLNode* mnode) {
 std::string MiddleLayer::ToStats () {
     MLNode* cur = head;
     size_t total_size = 0;
+    size_t total_count = 0;
     while (cur) {
+        DEBUG ("mnode %lu, %lu", cur->lkey, cur->hkey);
         total_size += cur->Size ();
         cur = cur->next;
+        total_count++;
     }
     char buffer[128];
-    sprintf (buffer, "Middle Layer size: %f MB", total_size / 1024.0 / 1024.0);
+    sprintf (buffer, "Middle Layer size: %f MB. count: %lu", total_size / 1024.0 / 1024.0,
+             total_count);
     return buffer;
 }
 
