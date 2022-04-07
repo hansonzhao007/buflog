@@ -94,6 +94,7 @@ public:
     void printAll ();
     void recoverMutex ();
 
+    std::string ToStats ();
     friend class page;
 };
 
@@ -979,6 +980,21 @@ public:
             }
         }
     }
+
+    size_t TotalSize () {
+        size_t size = 0;
+        if (hdr.leftmost_ptr == nullptr) {
+            // leaf node
+            return sizeof (*this);
+        } else {
+            for (int i = 0; records[i].ptr != nullptr; ++i) {
+                char* rptr = records[i].ptr;
+                size += ((page*)rptr)->TotalSize ();
+            }
+            size += sizeof (*this);
+        }
+        return size;
+    }
 };
 
 /*
@@ -1238,5 +1254,13 @@ void btree::recoverMutex () {
     printf ("Recoverd keys: %d\n", total_keys);
     pthread_mutex_unlock (&spoton_btree_pmem_print_mtx);
 }
+
+std::string btree::ToStats () {
+    size_t total_size = root->TotalSize ();
+    char buffer[128];
+    sprintf (buffer, "Pmem Btree Size: %f MB", total_size / 1024.0 / 1024.0);
+    return buffer;
+}
+
 }  // namespace spoton
 #endif

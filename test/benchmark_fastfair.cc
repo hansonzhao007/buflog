@@ -390,7 +390,6 @@ public:
         key_trace_ = new RandomKeyTrace (trace_size_, FLAGS_is_seq_trace);
         if (reads_ == 0) {
             reads_ = key_trace_->count_;
-            FLAGS_read = key_trace_->count_;
         }
         PrintHeader ();
         bool fresh_db = true;
@@ -524,7 +523,7 @@ public:
 
         size_t not_find = 0;
 
-        Duration duration (FLAGS_readtime, reads_);
+        Duration duration (FLAGS_readtime, interval);
         thread->stats.Start ();
         while (!duration.Done (batch) && key_iterator.Valid ()) {
             uint64_t j = 0;
@@ -538,9 +537,9 @@ public:
             thread->stats.FinishedBatchOp (j);
         }
         char buf[100];
-        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", reads_, not_find);
+        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", duration.Ops (), not_find);
         if (not_find)
-            printf ("thread %2d num: %lu, not find: %lu\n", thread->tid, interval, not_find);
+            printf ("thread %2d num: %lu, not find: %lu\n", thread->tid, duration.Ops (), not_find);
         thread->stats.AddMessage (buf);
     }
 

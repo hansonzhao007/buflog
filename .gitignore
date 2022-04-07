@@ -9,3 +9,4 @@ lib/ralloc/test
 ipm_*.txt
 **/*.pdf
 **/*.parse
+testbench/*.data

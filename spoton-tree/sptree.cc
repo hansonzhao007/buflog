@@ -290,8 +290,9 @@ std::string SPTree::ToString () {
 std::string SPTree::ToStats () {
     std::string toplayer_stats = topLayer.ToStats () + "\n";
     std::string midlayer_stats = midLayer.ToStats () + "\n";
-    std::string botlayer_stats = botLayer.ToStats ();
-    return toplayer_stats + midlayer_stats + botlayer_stats;
+    std::string botlayer_stats = botLayer.ToStats () + "\n";
+    std::string toplayer_pmem_stats = topLayerPmem.ToStats ();
+    return toplayer_stats + midlayer_stats + botlayer_stats + toplayer_pmem_stats;
 }
 
 }  // namespace spoton

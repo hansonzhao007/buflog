@@ -10,3 +10,12 @@ cd ..
 cd CCEH
 make -j
 mv bench_cceh ../release
+
+cd ..
+
+# build pactree
+cd pactree
+mkdir release
+cd release
+make -j
+

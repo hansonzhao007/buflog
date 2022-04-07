@@ -25,6 +25,8 @@ public:
     bool insert (key_t minKey, void* pmem_leaf);
     void* seekLE (key_t key);
     void remove (key_t key);
+
+    std::string ToStats ();
 };
 }  // namespace spoton
 #endif

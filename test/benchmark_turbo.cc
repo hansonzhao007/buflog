@@ -381,8 +381,7 @@ public:
         printf ("key trace size: %lu\n", trace_size_);
         key_trace_ = new RandomKeyTrace (trace_size_);
         if (reads_ == 0) {
-            reads_ = key_trace_->count_ / FLAGS_thread;
-            FLAGS_read = key_trace_->count_ / FLAGS_thread;
+            reads_ = key_trace_->count_;
         }
         PrintHeader ();
         bool fresh_db = true;
@@ -610,10 +609,10 @@ public:
             thread->stats.FinishedBatchOp (j);
         }
         char buf[100];
-        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", interval, not_find);
+        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", duration.Ops (), not_find);
         // printf ("thread %2d num: %lu, not find: %lu\n", thread->tid, interval, not_find);
-        INFO ("DoReadAll thread: %2d. Total read num: %lu, not find: %lu)", thread->tid, interval,
-              not_find);
+        INFO ("DoReadAll thread: %2d. Total read num: %lu, not find: %lu)", thread->tid,
+              duration.Ops (), not_find);
         thread->stats.AddMessage (buf);
     }
 

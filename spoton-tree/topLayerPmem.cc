@@ -40,4 +40,11 @@ void* TopLayerPmem::seekLE (key_t key) { return tree_pmem->btree_seekLE (key); }
 
 void TopLayerPmem::remove (key_t key) { tree_pmem->btree_delete (key); }
 
+std::string TopLayerPmem::ToStats () {
+    if (isDram) {
+        return "Dram mode. No TopLayerPmem";
+    }
+    return tree_pmem->ToStats ();
+}
+
 }  // namespace spoton

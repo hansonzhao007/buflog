@@ -482,7 +482,7 @@ public:
 
         size_t not_find = 0;
 
-        Duration duration (FLAGS_readtime, reads_);
+        Duration duration (FLAGS_readtime, interval);
         thread->stats.Start ();
         while (!duration.Done (batch) && key_iterator.Valid ()) {
             uint64_t j = 0;
