@@ -1,9 +1,9 @@
 
 NUM=120960000
-
+BATCH=1000
 for t in 40
 do
-numactl -N 0 sudo ../release/bench_sptree --is_seq_trace=true --thread=$t --num=$NUM --benchmarks=load,readall,status
-numactl -N 0 sudo ../release/bench_sptree --is_seq_trace=true --thread=$t --num=$NUM --benchmarks=recover,status,readall
+numactl -N 0 sudo ../release/bench_sptree  --thread=$t --num=$NUM --read=2000000 --batch=$BATCH --benchmarks=load,readall,readnon,status,savetrace
+numactl -N 0 sudo ../release/bench_sptree  --thread=$t --num=$NUM --read=2000000 --batch=$BATCH --benchmarks=readtrace,recover,status,readall,readnon
 done
 

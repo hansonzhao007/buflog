@@ -362,6 +362,28 @@ public:
 
     ~RandomKeyTrace () {}
 
+    void ToFile (const std::string& filename) {
+        std::ofstream outfile (filename, std::ios::out | std::ios_base::binary);
+        for (size_t k : keys_) {
+            outfile.write (reinterpret_cast<char*> (&k), 8);
+            // printf ("out key %016lu\n", k);
+        }
+        outfile.close ();
+    }
+
+    void FromFile (const std::string& filename) {
+        std::ifstream infile (filename, std::ios::in | std::ios_base::binary);
+        size_t key;
+        keys_.clear ();
+        while (!infile.eof ()) {
+            infile.read (reinterpret_cast<char*> (&key), 8);
+            keys_.push_back (key);
+            // printf (" in key %016lu\n", key);
+        }
+        count_ = keys_.size ();
+        infile.close ();
+    }
+
     void Randomize (void) {
         // printf ("randomize %lu keys\n", keys_.size ());
         // auto starttime = std::chrono::system_clock::now ();

@@ -1,7 +1,9 @@
 #include "sptree.h"
 
-#include "sptree_meta.h"
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
+#include "sptree_meta.h"
 namespace spoton {
 
 void SPTree::DistroySPTree (void) {
@@ -109,7 +111,7 @@ void SPTree::Recover (SPTreePmemRoot* root) {
     topLayerPmem.Recover (root);
 
     // rebuild the top layer and middle layer
-    thread_pool pool (std::thread::hardware_concurrency () / 2);
+
     // 1. Iterate the leaf page of pmem btree
     std::vector<RecoverUnit> units;
     topLayerPmem.ScanAllRecord ([&units] (key_t key, void* leafnode_ptr) {
@@ -119,24 +121,23 @@ void SPTree::Recover (SPTreePmemRoot* root) {
                                          reinterpret_cast<LeafNode64*> (leafnode_ptr)));
     });
     INFO ("Recover %lu leaf node from pmem btree", units.size ());
-    // 2. recover top layer dram
-    for (size_t i = 0; i < units.size (); i++) {
-        RecoverUnit& unit = units[i];
-        pool.submit ([&unit, this] () {
-            // insert top layer record
-            DEBUG ("recover top layer key %lu, mnode ptr: 0x%lx", unit.minKey, unit.mnode);
-            this->topLayer.insert (unit.minKey, unit.mnode);
-        });
 
-        pool.submit ([&unit] () {
-            // recover the middle layer node, lkey, hkey
-            uint64_t* lhkeys = reinterpret_cast<uint64_t*> (unit.leafnode);
-            unit.mnode->lkey = lhkeys[0];
-            unit.mnode->hkey = lhkeys[1];
-            unit.mnode->leafNode = unit.leafnode;
-            // DEBUG ("recover lkey %lu, hkey %lu", lhkeys[0], lhkeys[1]);
-        });
-    }
+    // 2. recover top layer dram
+    tbb::parallel_for (tbb::blocked_range<uint64_t> (0, units.size ()),
+                       [&] (const tbb::blocked_range<uint64_t>& range) {
+                           for (uint64_t i = range.begin (); i != range.end (); i++) {
+                               RecoverUnit& unit = units[i];
+                               // insert top layer record
+                               this->topLayer.insert (unit.minKey, unit.mnode);
+                               // recover the middle layer node, lkey, hkey
+                               uint64_t* lhkeys = reinterpret_cast<uint64_t*> (unit.leafnode);
+                               unit.mnode->lkey = lhkeys[0];
+                               unit.mnode->hkey = lhkeys[1];
+                               unit.mnode->leafNode = unit.leafnode;
+                               // DEBUG ("recover lkey %lu, hkey %lu", lhkeys[0], lhkeys[1]);
+                           }
+                       });
+
     // 3. rebuild the middle layer (connect mnodes together)
     MLNode* prev = nullptr;
     MLNode* head = nullptr;
@@ -155,8 +156,6 @@ void SPTree::Recover (SPTreePmemRoot* root) {
     midLayer.head = head;
     prev->next = midLayer.dummyTail;
     midLayer.dummyTail->prev = prev;
-    // wait until all finished
-    pool.wait_for_tasks ();
 }
 
 void SPTree::WaitAllJobs () {
@@ -164,7 +163,7 @@ void SPTree::WaitAllJobs () {
     tpool.wait_for_tasks ();
 }
 
-SPTree::SPTree (bool isDram) : botLayer (isDram), topLayerPmem (isDram), tpool (2) {}
+SPTree::SPTree (bool isDram) : botLayer (isDram), topLayerPmem (isDram), tpool (4) {}
 
 SPTree::~SPTree () {
     if (!LeafNode64::kIsLeafNodeDram) RP_close ();

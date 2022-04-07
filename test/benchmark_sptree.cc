@@ -43,6 +43,7 @@ DEFINE_bool (hist, false, "");
 DEFINE_string (benchmarks, "load,readall", "");
 DEFINE_bool (dram, false, "use dram leafnode");
 DEFINE_bool (is_seq_trace, false, "trace is sequential or not");
+DEFINE_string (tracefile, "randomtrace.data", "");
 
 using namespace util;
 
@@ -415,6 +416,14 @@ public:
                 fresh_db = false;
                 thread = 1;
                 method = &Benchmark::DoRecover;
+            } else if (name == "readtrace") {
+                fresh_db = false;
+                thread = 1;
+                method = &Benchmark::DoReadTrace;
+            } else if (name == "savetrace") {
+                fresh_db = false;
+                thread = 1;
+                method = &Benchmark::DoSaveTrace;
             } else if (name == "delete") {
                 fresh_db = false;
                 key_trace_->Randomize ();
@@ -672,6 +681,22 @@ public:
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
             std::chrono::system_clock::now () - starttime);
         printf ("recover time: %f s.\n", duration.count () / 1000000.0);
+    }
+
+    void DoSaveTrace (ThreadState* thread) {
+        auto starttime = std::chrono::system_clock::now ();
+        key_trace_->ToFile (FLAGS_tracefile);
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
+            std::chrono::system_clock::now () - starttime);
+        printf ("save trace time: %f s.\n", duration.count () / 1000000.0);
+    }
+
+    void DoReadTrace (ThreadState* thread) {
+        auto starttime = std::chrono::system_clock::now ();
+        key_trace_->FromFile (FLAGS_tracefile);
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
+            std::chrono::system_clock::now () - starttime);
+        printf ("read trace time: %f s.\n", duration.count () / 1000000.0);
     }
 
     void DoWrite (ThreadState* thread) {
