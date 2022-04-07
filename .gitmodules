@@ -5,3 +5,6 @@
 [submodule "lib/xxhash"]
 	path = lib/xxhash
 	url = https://github.com/Cyan4973/xxHash.git
+[submodule "pactree"]
+	path = pactree
+	url = git@github.com:hansonzhao007/pactree.git
