@@ -563,9 +563,9 @@ public:
             thread->stats.FinishedBatchOp (j);
         }
         char buf[100];
-        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", duration.Ops (), not_find);
+        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", interval, not_find);
         if (not_find)
-            printf ("thread %2d num: %lu, not find: %lu\n", thread->tid, duration.Ops (), not_find);
+            printf ("thread %2d num: %lu, not find: %lu\n", thread->tid, interval, not_find);
         thread->stats.AddMessage (buf);
     }
 

@@ -609,10 +609,10 @@ public:
             thread->stats.FinishedBatchOp (j);
         }
         char buf[100];
-        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", duration.Ops (), not_find);
+        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", interval, not_find);
         // printf ("thread %2d num: %lu, not find: %lu\n", thread->tid, interval, not_find);
-        INFO ("DoReadAll thread: %2d. Total read num: %lu, not find: %lu)", thread->tid,
-              duration.Ops (), not_find);
+        INFO ("DoReadAll thread: %2d. Total read num: %lu, not find: %lu)", thread->tid, interval,
+              not_find);
         thread->stats.AddMessage (buf);
     }
 

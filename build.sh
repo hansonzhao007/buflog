@@ -10,6 +10,7 @@ cd ..
 cd CCEH
 make -j
 mv bench_cceh ../release
+mv bench_cceh_spoton_di ../release
 
 cd ..
 
@@ -17,5 +18,6 @@ cd ..
 cd pactree
 mkdir release
 cd release
+cmake ..
 make -j
 

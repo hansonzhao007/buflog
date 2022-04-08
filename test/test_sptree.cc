@@ -137,21 +137,6 @@ TEST_F (SPTreeDramTest, RandomInsertAndRemove) {
     }
 }
 
-TEST_F (SPTreePmemTest, LoadRecover) {
-    Destroy ();
-    Create ();
-    size_t num = 1000;
-    Load (num);
-    for (size_t i = 1; i <= num; i++) {
-        TID tid = tree_->lookup (i);
-        ASSERT_EQ (tid, i);
-    }
-    // close pmem
-    delete tree_;
-
-    tree_ = spoton::SPTree::RecoverSPTree ();
-}
-
 int main (int argc, char** argv) {
     ::testing::InitGoogleTest (&argc, argv);
     return RUN_ALL_TESTS ();

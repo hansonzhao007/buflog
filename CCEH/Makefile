@@ -7,6 +7,7 @@ all: benchmark
 
 benchmark: src/ycsb_bench.cpp CCEH
 	$(CXX) $(CFLAGS) -o bench_cceh src/ycsb_bench.cpp src/CCEH_CoW.o -lpmemobj -ltbb -lpmem -lpthread -lgflags -DMULTITHREAD
+	$(CXX) $(CFLAGS) -o bench_cceh_spoton_di src/ycsb_bench.cpp src/CCEH_CoW.o -lpmemobj -ltbb -lpmem -lpthread -lgflags -DMULTITHREAD -DCONFIG_DRAM_INNER
 
 CCEH: src/CCEH.h src/CCEH.cpp
 	$(CXX) $(CFLAGS) -c -o src/CCEH.o src/CCEH.cpp -DINPLACE -lpmemobj -lpmem
