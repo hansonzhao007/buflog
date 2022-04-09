@@ -527,6 +527,7 @@ public:
         }
         char buf[100];
         snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", reads_, not_find);
+        if (not_find) INFO ("thread %2d num: %lu, not find: %lu\n", thread->tid, reads_, not_find);
         thread->stats.AddMessage (buf);
     }
 

@@ -5,6 +5,8 @@
 #include "pptr.hpp"
 #include "ralloc.hpp"
 
+constexpr bool EnableWriteBuffer = false;
+
 namespace spoton {
 constexpr size_t kSPTreeMinKey = 1;
 class btree;
@@ -15,15 +17,15 @@ struct SPTreePmemRoot {
     pptr<LeafNode64> bottomLayerLeafNode64_dummyTail;
 };
 
-class LeafNodeBitSet {
+class NodeBitSet {
 public:
-    LeafNodeBitSet () : bits_ (0) {}
+    NodeBitSet () : bits_ (0) {}
 
-    explicit LeafNodeBitSet (uint64_t bits) : bits_ (bits) {}
+    explicit NodeBitSet (uint64_t bits) : bits_ (bits) {}
 
     inline int validCount (void) { return __builtin_popcountll (bits_); }
 
-    inline LeafNodeBitSet& operator++ () {
+    inline NodeBitSet& operator++ () {
         // remove the lowest 1-bit
         bits_ &= (bits_ - 1);
         return *this;
@@ -36,9 +38,9 @@ public:
         return __builtin_ctzll (bits_);
     }
 
-    inline LeafNodeBitSet begin () const { return *this; }
+    inline NodeBitSet begin () const { return *this; }
 
-    inline LeafNodeBitSet end () const { return LeafNodeBitSet (0); }
+    inline NodeBitSet end () const { return NodeBitSet (0); }
 
     inline uint64_t bit () { return bits_; }
 
@@ -48,12 +50,8 @@ public:
     }
 
 private:
-    friend bool operator== (const LeafNodeBitSet& a, const LeafNodeBitSet& b) {
-        return a.bits_ == b.bits_;
-    }
-    friend bool operator!= (const LeafNodeBitSet& a, const LeafNodeBitSet& b) {
-        return a.bits_ != b.bits_;
-    }
+    friend bool operator== (const NodeBitSet& a, const NodeBitSet& b) { return a.bits_ == b.bits_; }
+    friend bool operator!= (const NodeBitSet& a, const NodeBitSet& b) { return a.bits_ != b.bits_; }
     uint64_t bits_;
 };
 }  // namespace spoton

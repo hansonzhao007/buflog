@@ -60,6 +60,8 @@ public:
     LeafNodeSlot slots[64];
     uint8_t seqs[64];
 
+    static constexpr size_t kLeafNodeCapacity = 64;
+
 public:
     // by default, create pmem leafnode
     static inline bool kIsLeafNodeDram{false};
@@ -75,8 +77,9 @@ public:
 
     // spilt the this node
     // return a new node and its lkey
-    std::tuple<LeafNode64*, key_t> Split (key_t key, val_t val, void* newLeafNodeAddr,
-                                          BloomFilterFix64& bleft, BloomFilterFix64& bright);
+    std::tuple<LeafNode64*, key_t> Split (std::vector<std::pair<key_t, val_t>>& toMergedRecords,
+                                          void* newLeafNodeAddr, BloomFilterFix64& bleft,
+                                          BloomFilterFix64& bright);
 
 public:
     void SetPrev (LeafNode64* ptr);
@@ -85,12 +88,14 @@ public:
     LeafNode64* GetPrev ();
     LeafNode64* GetNext ();
 
-    LeafNodeBitSet MatchBitSet (uint8_t tag);
+    NodeBitSet MatchBitSet (uint8_t tag);
     inline bool Full () { return __builtin_popcountll (valid_bitmap) == 64; }
-    inline LeafNodeBitSet ValidBitSet () { return LeafNodeBitSet (valid_bitmap); }
-    inline LeafNodeBitSet EmptyBitSet () { return LeafNodeBitSet (~valid_bitmap); }
+    inline size_t Count () { return __builtin_popcountll (valid_bitmap); }
+    inline NodeBitSet ValidBitSet () { return NodeBitSet (valid_bitmap); }
+    inline NodeBitSet EmptyBitSet () { return NodeBitSet (~valid_bitmap); }
     inline void SetValid (int pos) { valid_bitmap |= (1L << pos); }
     inline void SetErase (int pos) { valid_bitmap &= ~(1L << pos); }
+    inline bool isValid (int pos) { return (valid_bitmap & (1L << pos)) != 0; }
 };
 
 };  // namespace spoton

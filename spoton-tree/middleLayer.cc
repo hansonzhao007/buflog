@@ -1,5 +1,8 @@
 #include "middleLayer.h"
 
+#include <emmintrin.h>
+#include <immintrin.h>
+
 #include <climits>
 namespace spoton {
 
@@ -48,9 +51,85 @@ bool BloomFilterFix64::couldExist (const void* addr, size_t len) {
     return true;
 }
 
+NodeBitSet NodeBuffer::MatchBitSet (uint8_t tag) {
+    // passing the tag to vector
+    auto tag_vector = _mm_set1_epi8 (tag);
+    auto tag_compare = _mm_loadu_si128 (reinterpret_cast<const __m128i*> (this->tags));
+    auto bitmask = _mm_cmpeq_epi8_mask (tag_vector, tag_compare);
+    return NodeBitSet (bitmask & this->valid_bitmap);
+}
+
+bool NodeBuffer::insert (key_t _key, val_t _val) {
+    DEBUG ("buffer 0x%lx insert %lu, %lu. count %lu", this, _key, _val, Count ());
+    // obtain key hash
+    key_t key = _key;
+    val_t val = _val;
+    uint64_t hash = XXH3_64bits (&key, 8);
+    uint8_t tag = hash & 0xFF;
+    for (int i : MatchBitSet (tag)) {
+        auto& record = this->slots[i];
+        if (record.key == key) {
+            // update
+            record.val = val;
+            return true;
+        }
+    }
+    // if reach here, we need to insert to an empty slot
+    if (!Full ()) {
+        for (int i : EmptyBitSet ()) {
+            auto& record = this->slots[i];
+            // 1. set slot
+            record.key = key;
+            record.val = val;
+            // 2. set tag
+            this->tags[i] = tag;
+            // 3. validate bitmap
+            SetValid (i);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+val_t NodeBuffer::lookup (key_t _key) {
+    // obtain key hash
+    key_t key = _key;
+    uint64_t hash = XXH3_64bits (&key, 8);
+    uint8_t tag = hash & 0xFF;
+
+    for (int i : MatchBitSet (tag)) {
+        auto& record = this->slots[i];
+        if (record.key == key) {
+            return record.val;
+        }
+    }
+    // fail to find
+    return 0;
+}
+
+bool NodeBuffer::remove (key_t _key) {
+    // obtain key hash
+    key_t key = _key;
+    uint64_t hash = XXH3_64bits (&key, 8);
+    uint8_t tag = hash & 0xFF;
+
+    for (int i : MatchBitSet (tag)) {
+        auto& record = this->slots[i];
+        if (record.key == key) {
+            // find key
+            SetErase (i);
+            return true;
+        }
+    }
+    return false;
+}
+
 MiddleLayer::MiddleLayer () {
-    head = new MLNode ();
-    dummyTail = new MLNode ();
+    head = new (EnableWriteBuffer) MLNode (EnableWriteBuffer);
+    dummyTail = new (false) MLNode (false);
+    head->EnableBloomFilter ();
+    dummyTail->EnableBloomFilter ();
 
     head->lkey = kSPTreeMinKey;
     head->hkey = UINT64_MAX;

@@ -28,9 +28,7 @@ public:
     static constexpr size_t SPTREE_PMEM_SIZE{((128LU << 30))};
 
     static void DistroySPTree (void);
-
     static SPTree* CreateSPTree (bool isDram);
-
     // recover sptree from pmem
     static SPTree* RecoverSPTree ();
 
@@ -41,6 +39,7 @@ private:
     SPTree (bool isDram = true);
     void Initialize (SPTreePmemRoot*);
     void Recover (SPTreePmemRoot*);
+    void SplitMNodeAndUnlock (MLNode* mnode, std::vector<std::pair<key_t, val_t>>& toMergedRecords);
 
 public:
     ~SPTree ();

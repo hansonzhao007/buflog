@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <unordered_set>
 
 #include "logger.h"
 #include "xxhash.h"
@@ -58,8 +59,11 @@ LeafNode64* LeafNode64::GetNext () {
     return next_pmem;
 }
 
-bool LeafNode64::Insert (key_t key, val_t val) {
+bool LeafNode64::Insert (key_t _key, val_t _val) {
+    DEBUG ("Insert %lu, %lu", _key, _val);
     // obtain key hash
+    key_t key = _key;
+    val_t val = _val;
     uint64_t hash = XXH3_64bits (&key, 8);
     uint8_t tag = hash & 0xFF;
 
@@ -90,8 +94,9 @@ bool LeafNode64::Insert (key_t key, val_t val) {
     return false;
 }
 
-bool LeafNode64::Remove (key_t key) {
+bool LeafNode64::Remove (key_t _key) {
     // obtain key hash
+    key_t key = _key;
     uint64_t hash = XXH3_64bits (&key, 8);
     uint8_t tag = hash & 0xFF;
 
@@ -106,8 +111,9 @@ bool LeafNode64::Remove (key_t key) {
     return false;
 }
 
-bool LeafNode64::Lookup (key_t key, val_t& val) {
+bool LeafNode64::Lookup (key_t _key, val_t& val) {
     // obtain key hash
+    key_t key = _key;
     uint64_t hash = XXH3_64bits (&key, 8);
     uint8_t tag = hash & 0xFF;
 
@@ -156,14 +162,13 @@ void LeafNode64::Sort () {
     }
 }
 
-std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* newNodeAddr,
-                                                  BloomFilterFix64& bleft,
-                                                  BloomFilterFix64& bright) {
+std::tuple<LeafNode64*, key_t> LeafNode64::Split (
+    std::vector<std::pair<key_t, val_t>>& toMergedRecords, void* newNodeAddr,
+    BloomFilterFix64& bleft, BloomFilterFix64& bright) {
     // should lock both me and my next node
-    assert (key >= this->lkey);
-
+    DEBUG ("Split leaf count %lu. valid: %lx", Count (), valid_bitmap);
     LeafNodeSlot copied_slots[64];
-    assert (Full ());
+    // assert (Full ());
 
     // copy to dram to sort
     std::copy (std::begin (this->slots), std::end (this->slots), std::begin (copied_slots));
@@ -174,21 +179,19 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* ne
     key_t median = copied_slots[32].key;
 
     // record the valid bitmap position, which need to be cleared later
-    LeafNodeBitSet shiftedBitSet;
+    NodeBitSet shiftedBitSet;
 
     // 1. create new LeafNode64 for right half keys
     LeafNode64* newNode = new (newNodeAddr) LeafNode64 ();
 
     // 2. copy the righ half to newNode. [median, ..] -> newNode
     for (int i = 0; i < 64; i++) {
-        if (this->slots[i].key >= median) {
-            shiftedBitSet.set (i);
-            newNode->Insert (this->slots[i].key, this->slots[i].val);
+        auto slot = this->slots[i];
+        if (slot.key >= median && isValid (i)) {
+            SetErase (i);
+            DEBUG ("right shift insert %d: %lu, %lu", i, slot.key, slot.val);
+            newNode->Insert (slot.key, slot.val);
         }
-    }
-    if (key >= median) {
-        // to right half
-        newNode->Insert (key, val);
     }
 
     // 3. set newNode info
@@ -204,38 +207,42 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (key_t key, val_t val, void* ne
     // store fence here
     std::atomic_thread_fence (std::memory_order_release);
 
-    // 5. reset hkey and valid bitmap of me
+    // 5. reset hkey and valid bitmap of me (remove right half from me)
     this->hkey = median;
-    this->valid_bitmap &= ~(shiftedBitSet.bit ());
 
-    // 6. insert key,val if needed
-    if (key < median) {
-        this->Insert (key, val);
-    }
-
+    // 6. merge the toMergedRecords and set bloomfilter
     bleft.reset ();
+    bright.reset ();
+    for (auto [key, val] : toMergedRecords) {
+        DEBUG ("merge %lu, %lu", key, val);
+        if (key < median) {
+            // to left half
+            DEBUG ("merge to leaf %lu, %lu", key, val);
+            this->Insert (key, val);
+            bleft.set (key);
+        } else {
+            // to right half
+            DEBUG ("merge to right %lu, %lu", key, val);
+            newNode->Insert (key, val);
+            bright.set (key);
+        }
+    }
     for (int i = 0; i < 32; i++) {
         bleft.set (copied_slots[i].key);
     }
-
-    bright.reset ();
     for (int i = 32; i < 64; i++) {
         bright.set (copied_slots[i].key);
     }
-    if (key < median) {
-        bleft.set (key);
-    } else {
-        bright.set (key);
-    }
+
     return {newNode, median};
 };
 
-LeafNodeBitSet LeafNode64::MatchBitSet (uint8_t tag) {
+NodeBitSet LeafNode64::MatchBitSet (uint8_t tag) {
     // passing the tag to vector
     auto tag_vector = _mm512_set1_epi8 (tag);
     auto tag_compare = _mm512_loadu_si512 (reinterpret_cast<const __m512i*> (this->tags));
     auto bitmask = _mm512_cmpeq_epi8_mask (tag_vector, tag_compare);
-    return LeafNodeBitSet (bitmask & this->valid_bitmap);
+    return NodeBitSet (bitmask & this->valid_bitmap);
 }
 
 void* BottomLayer::Malloc (size_t size) {
@@ -277,6 +284,7 @@ void BottomLayer::Initialize (SPTreePmemRoot* root) {
 void BottomLayer::Recover (SPTreePmemRoot* root) { head = root->bottomLayerLeafNode64_head; }
 
 bool BottomLayer::Insert (key_t key, val_t val, LeafNode64* bnode) {
+    DEBUG ("Bottom insert %lu, %lu", key, val);
     return bnode->Insert (key, val);
 }
 

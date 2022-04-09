@@ -33,7 +33,7 @@ public:
 };
 
 TEST (BitSet, Basic) {
-    LeafNodeBitSet bitset{0x5555555555555555};
+    NodeBitSet bitset{0x5555555555555555};
     int count = 0;
     for (auto i : bitset) {
         ASSERT_EQ (i, count);
@@ -76,7 +76,7 @@ TEST_F (TopLayerTest, Seek) {
 };
 
 TEST (MiddleLayer, Basic) {
-    MLNode mnode;
+    MLNode mnode (false);
     MiddleLayer mlayer;
     for (int i = 0; i < 64; i++) {
         mlayer.SetBloomFilter (i, &mnode);
@@ -86,6 +86,50 @@ TEST (MiddleLayer, Basic) {
         bool res = mlayer.CouldExist (i, &mnode);
         ASSERT_TRUE (res);
     }
+}
+
+TEST (MiddleLayer, NodeBuffer) {
+    NodeBuffer node;
+    for (int i = 1; i <= 14; i++) {
+        bool res = node.insert (i, i);
+        ASSERT_TRUE (res);
+    }
+
+    bool res = node.insert (15, 15);
+    ASSERT_FALSE (res);
+
+    for (uint64_t i = 1; i <= 14; i++) {
+        uint64_t res = node.lookup (i);
+        ASSERT_EQ (res, i);
+    }
+
+    for (uint64_t i = 15; i <= 30; i++) {
+        uint64_t res = node.lookup (i);
+        ASSERT_EQ (res, 0);
+    }
+
+    for (uint64_t i = 1; i <= 14; i++) {
+        bool res = node.remove (i);
+        ASSERT_EQ (res, true);
+    }
+
+    for (uint64_t i = 1; i <= 30; i++) {
+        uint64_t res = node.lookup (i);
+        ASSERT_EQ (res, 0);
+    }
+}
+
+TEST (MiddleLayer, MLNodeAllocation) {
+    // without buffer MLNode
+    MLNode* node0 = new (false) MLNode (false);
+    ASSERT_EQ (node0->type, MLNodeTypeNoBuffer);
+
+    // with buffer MLNode
+    MLNode* node1 = new (true) MLNode (true);
+    ASSERT_EQ (node1->type, MLNodeTypeWithBuffer);
+
+    delete node0;
+    delete node1;
 }
 
 TEST (BottomLayer, Basic) {
@@ -150,7 +194,9 @@ TEST (BottomLayer, Split) {
 
     void* addr = malloc (sizeof (LeafNode64));
     BloomFilterFix64 left, right;
-    auto [new_leaf_node, new_lkey] = leafnode.Split (64, 64, addr, left, right);
+    std::vector<std::pair<size_t, size_t>> toMerge;
+    toMerge.push_back ({64, 64});
+    auto [new_leaf_node, new_lkey] = leafnode.Split (toMerge, addr, left, right);
 
     for (int i = 0; i < 32; i++) {
         val_t val;

@@ -3,8 +3,11 @@
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 
+#include "logger.h"
 #include "sptree_meta.h"
 namespace spoton {
+
+void AsyncInsert (TopLayerPmem* pmem_tree, key_t key, void* ptr) { pmem_tree->insert (key, ptr); };
 
 void SPTree::DistroySPTree (void) {
     for (const std::string& file :
@@ -117,7 +120,7 @@ void SPTree::Recover (SPTreePmemRoot* root) {
     topLayerPmem.ScanAllRecord ([&units] (key_t key, void* leafnode_ptr) {
         DEBUG ("scan top key %lu", key);
         assert (key != 0);
-        units.emplace_back (RecoverUnit (key, 0LU, 0LU, new MLNode (),
+        units.emplace_back (RecoverUnit (key, 0LU, 0LU, new (false) MLNode (false),
                                          reinterpret_cast<LeafNode64*> (leafnode_ptr)));
     });
     INFO ("Recover %lu leaf node from pmem btree", units.size ());
@@ -195,15 +198,64 @@ retry2:
     return {mnode, v};
 }
 
+void SPTree::SplitMNodeAndUnlock (MLNode* mnode,
+                                  std::vector<std::pair<key_t, val_t>>& toMergedRecords) {
+    // assert mnode has already been locked
+retry_lock_next:
+    bool needRestart = false;
+    // 4a. lock next mnode when split
+    mnode->next->lock.writeLockOrRestart (needRestart);
+    if (needRestart) {
+        goto retry_lock_next;
+    }
+
+    // 4b. split the leaf node
+    MLNode* old_next_mnode = mnode->next;
+    MLNode* new_mnode = new (EnableWriteBuffer) MLNode (EnableWriteBuffer);
+    void* newLeafNodeAddr = botLayer.Malloc (sizeof (LeafNode64));
+    LeafNode64* newLeafNode;
+    key_t newlkey;
+    std::tie (newLeafNode, newlkey) = mnode->leafNode->Split (
+        toMergedRecords, newLeafNodeAddr, mnode->GetBloomFilter (), new_mnode->GetBloomFilter ());
+
+    // 4c. enable bloom filters for both mnode and new_mnode
+    mnode->EnableBloomFilter ();
+    new_mnode->EnableBloomFilter ();
+
+    // 4d. link mnode for newLeafNode
+    new_mnode->lkey = newlkey;
+    new_mnode->hkey = mnode->hkey;
+    new_mnode->prev = mnode;
+    new_mnode->next = mnode->next;
+    new_mnode->leafNode = newLeafNode;
+    mnode->next->prev = new_mnode;
+    mnode->next = new_mnode;
+    mnode->hkey = newlkey;
+
+    // 4e. insert newlkey->newNode to dram toplayer
+    topLayer.insert (newlkey, new_mnode);
+
+    // 4f. send jobs to background thread pool to update pmem top layer
+    if (topLayerPmem.Exist ()) {
+        tpool.submit ([this, newlkey, newLeafNode] () {
+            // DEBUG ("pmem btree insert %lu", newlkey);
+            this->topLayerPmem.insert (newlkey, newLeafNode);
+        });
+    }
+
+    mnode->lock.writeUnlock ();
+    old_next_mnode->lock.writeUnlock ();
+}
+
 TID SPTree::lookup (key_t key) {
 retry:
     // 1. find the target middle layer node, and its version snapshot
+    bool needRestart = false;
     MLNode* mnode;
     uint64_t v;
     std::tie (mnode, v) = jumpToMiddleLayer (key);
 
     // 2. check the bloomfilter in middle layer
-    bool needRestart = false;
     bool maybeExist = midLayer.CouldExist (key, mnode);
     mnode->lock.checkOrRestart (v, needRestart);
     if (needRestart) {
@@ -211,7 +263,6 @@ retry:
         goto retry;
     }
     if (!maybeExist) {
-        // does not exist
         mnode->lock.checkOrRestart (v, needRestart);
         if (needRestart) {
             goto retry;
@@ -219,7 +270,20 @@ retry:
         return 0;
     }
 
-    // 3. check the leaf node
+    // 3. check the write buffer
+    if (mnode->type == MLNodeTypeWithBuffer) {
+        val_t val = mnode->lookup (key);
+        if (val != 0) {
+            mnode->lock.checkOrRestart (v, needRestart);
+            if (needRestart) {
+                goto retry;
+            }
+            // find in write buffer
+            return val;
+        }
+    }
+
+    // 4. check the leaf node
     val_t val;
     bool res = botLayer.Lookup (key, val, mnode->leafNode);
     mnode->lock.checkOrRestart (v, needRestart);
@@ -231,9 +295,8 @@ retry:
     return res ? val : 0;
 }
 
-void AsyncInsert (TopLayerPmem* pmem_tree, key_t key, void* ptr) { pmem_tree->insert (key, ptr); };
-
 bool SPTree::insert (key_t key, TID val) {
+    DEBUG ("new insert %lu, %lu", key, val);
 retry:
     // 1. find the target middle layer node, and its version snapshot
     MLNode* mnode;
@@ -248,61 +311,75 @@ retry:
         goto retry;
     }
 
-    // 3. insert to leafnode on pmem
-    bool bottomInsertRes = botLayer.Insert (key, val, mnode->leafNode);
-    if (!bottomInsertRes) {
+    // 3. insert to mnode writebuffer if possible
+    if (mnode->type == MLNodeTypeWithBuffer) {
+        bool succ = mnode->insert (key, val);
+        if (succ) {
+            // insert write buffer succ, then we set bloom filter and return
+            midLayer.SetBloomFilter (key, mnode);
+            mnode->lock.writeUnlock ();
+            return true;
+        } else {
+            // write buffer full, merge to pmem node
+            size_t count1 = mnode->recordCount ();      // record # in buffer
+            size_t count2 = mnode->leafNode->Count ();  // record # in leafnode
+
+            // 3.a we can merge all the records in buffer
+            if (count1 + count2 <= LeafNode64::kLeafNodeCapacity - 1) {
+                // insert all records in the write buffer
+                auto* buffer = mnode->getNodeBuffer ();
+                for (int i : buffer->ValidBitSet ()) {
+                    auto slot = buffer->slots[i];
+                    DEBUG ("buffer 0x%lx flush insert %lu, %lu", buffer, slot.key, slot.val);
+                    botLayer.Insert (slot.key, slot.val, mnode->leafNode);
+                }
+                // insert this record
+                DEBUG ("buffer new insert %lu, %lu", key, val);
+                bool res = botLayer.Insert (key, val, mnode->leafNode);
+                if (!res) {
+                    perror ("fail insertion to bottom layer");
+                    ERROR ("fail insertion to bottom layer");
+                    exit (1);
+                }
+                midLayer.SetBloomFilter (key, mnode);
+
+                // clear write buffer
+                mnode->resetBuffer ();
+                mnode->lock.writeUnlock ();
+                return true;
+            }
+
+            // 3.b leafnode cannot hold all the records
+            NodeBuffer* buffer = mnode->getNodeBuffer ();
+            std::vector<std::pair<key_t, val_t>> toMerge;
+            for (int i : buffer->ValidBitSet ()) {
+                auto slot = buffer->slots[i];
+                DEBUG ("add toMerge %lu", slot.key);
+                toMerge.push_back ({slot.key, slot.val});
+            }
+            DEBUG ("add toMerge %lu", key);
+            toMerge.push_back ({key, val});
+            SplitMNodeAndUnlock (mnode, toMerge);
+
+            // clear write buffer after split
+            mnode->resetBuffer ();
+            return true;
+        }
+    }
+
+    // 4. insert to bottom layer
+    DEBUG ("No buffer insert %lu, %lu", key, val);
+    bool bottomInsertSucc = botLayer.Insert (key, val, mnode->leafNode);
+    if (!bottomInsertSucc) {
         // fail to insert, split
-    retry_lock_next:
-        needRestart = false;
-        // 3a. lock next mnode when split
-        mnode->next->lock.writeLockOrRestart (needRestart);
-        if (needRestart) {
-            goto retry_lock_next;
-        }
-
-        // 3b. split the leaf node
-        MLNode* old_next_mnode = mnode->next;
-        MLNode* new_mnode = new MLNode ();
-        void* newLeafNodeAddr = botLayer.Malloc (sizeof (LeafNode64));
-        LeafNode64* newLeafNode;
-        key_t newlkey;
-        std::tie (newLeafNode, newlkey) = mnode->leafNode->Split (
-            key, val, newLeafNodeAddr, mnode->GetBloomFilter (), new_mnode->GetBloomFilter ());
-
-        // 3c. enable bloom filters for both mnode and new_mnode
-        mnode->EnableBloomFilter ();
-        new_mnode->EnableBloomFilter ();
-
-        // 3d. link mnode for newLeafNode
-        new_mnode->lkey = newlkey;
-        new_mnode->hkey = mnode->hkey;
-        new_mnode->prev = mnode;
-        new_mnode->next = mnode->next;
-        new_mnode->leafNode = newLeafNode;
-        mnode->next->prev = new_mnode;
-        mnode->next = new_mnode;
-        mnode->hkey = newlkey;
-
-        // 3e. insert newlkey->newNode to dram toplayer
-        topLayer.insert (newlkey, new_mnode);
-
-        // 3f. send jobs to background thread pool to update pmem top layer
-        if (topLayerPmem.Exist ()) {
-            tpool.submit ([this, newlkey, newLeafNode] () {
-                // DEBUG ("pmem btree insert %lu", newlkey);
-                this->topLayerPmem.insert (newlkey, newLeafNode);
-            });
-        }
-
-        mnode->lock.writeUnlock ();
-        old_next_mnode->lock.writeUnlock ();
-
+        std::vector<std::pair<key_t, val_t>> toMerge;
+        toMerge.push_back ({key, val});
+        SplitMNodeAndUnlock (mnode, toMerge);
         return true;
     }
 
-    // 4. succ. update bloomfilter in Dram
+    // 5. succ. update bloomfilter in Dram
     midLayer.SetBloomFilter (key, mnode);
-
     mnode->lock.writeUnlock ();
     return true;
 }
@@ -324,15 +401,29 @@ retry:
     }
     if (!maybeExist) {
         // does not exist
+        mnode->lock.checkOrRestart (v, needRestart);
+        if (needRestart) {
+            goto retry;
+        }
         return false;
     }
 
-    // 3. lock the mnode and try to remove
     mnode->lock.upgradeToWriteLockOrRestart (v, needRestart);
     if (needRestart) {
         // version has changed
         goto retry;
     }
+
+    // 3. try to remove from write buffer
+    if (mnode->type == MLNodeTypeWithBuffer) {
+        bool removeMNodeSucc = mnode->remove (key);
+        if (removeMNodeSucc) {
+            mnode->lock.writeUnlock ();
+            return true;
+        }
+    }
+
+    // 4. try to remove from bottom layer
     bool res = botLayer.Remove (key, mnode->leafNode);
     mnode->lock.writeUnlock ();
     return res;

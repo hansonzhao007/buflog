@@ -2,7 +2,9 @@
 
 NUM=120960000
 
-declare -a allThreads=(40 36 32 28 24 20 16 12 8 4 2 1)
+# declare -a allThreads=(40 36 32 28 24 20 16 12 8 4 2 1)
+
+declare -a allThreads=(40)
 
 # for t in ${allThreads[@]};
 # do

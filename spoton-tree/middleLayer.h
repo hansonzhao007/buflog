@@ -65,11 +65,51 @@ private:
     }
 };
 
+constexpr size_t kBloomFilterSize = sizeof (BloomFilterFix64);
+struct NodeBufferSlot {
+    key_t key;
+    val_t val;
+};
+class NodeBuffer {
+public:
+    uint16_t valid_bitmap{0};  // 2B
+                               // .. ->8B
+    uint8_t tags[16];          // 16B
+    NodeBufferSlot slots[14];  // 14 * 16B =  224B
+
+    bool insert (key_t key, val_t val);
+    val_t lookup (key_t key);
+    bool remove (key_t key);
+
+    inline size_t Count () { return __builtin_popcount (valid_bitmap); }
+
+public:
+    NodeBitSet MatchBitSet (uint8_t tag);
+    inline bool Full () { return __builtin_popcount (valid_bitmap) == 14; }
+    inline NodeBitSet ValidBitSet () { return NodeBitSet (valid_bitmap); }
+    inline NodeBitSet EmptyBitSet () { return NodeBitSet (~valid_bitmap); }
+    inline void SetValid (int pos) {
+        assert (pos < 14);
+        valid_bitmap |= (1 << pos);
+    }
+    inline void SetErase (int pos) {
+        assert (pos < 14);
+        valid_bitmap &= ~(1 << pos);
+    }
+    inline void Reset () {
+        valid_bitmap = 0;
+        memset (tags, 0, 16);
+        DEBUG ("buffer 0x%lx reset, count: %lu, valid: %lx", this, Count (), valid_bitmap);
+    }
+};
+
+constexpr size_t kNodeBufferSize = sizeof (NodeBuffer);
+static_assert (kNodeBufferSize == 248, "");
 /**
  * @brief MLNode is an in dram middle layer node
  *
  */
-class __attribute__ ((packed)) MLNode {
+class MLNode {
 public:
     size_t lkey{0};
     size_t hkey{0};
@@ -85,14 +125,45 @@ private:
     BloomFilterFix64 bloomfilter;
 
 public:
-    LeafNode64* leafNode{nullptr};
+    LeafNode64* leafNode{nullptr};  // 8B
 
-    MLNodeType type{MLNodeTypeNoBuffer};  // 1B
-    bool isDisabled{true};
+    MLNodeType type{MLNodeTypeNoBuffer};  //
+    bool isDisabled{true};                //
+    uint8_t none_[6];                     // fill to 8B. (alignment)
 
     char writeBuffer[0];
 
-    size_t Size () { return sizeof (MLNode); }
+    explicit MLNode (bool withBuffer)
+        : lkey (0),
+          hkey (0),
+          prev (nullptr),
+          next (nullptr),
+          headptr (nullptr),
+          leafNode (nullptr),
+          isDisabled (true) {
+        if (withBuffer)
+            type = MLNodeTypeWithBuffer;
+        else
+            type = MLNodeTypeNoBuffer;
+    }
+
+    static void* operator new (size_t sz, bool withBuffer) {
+        if (!withBuffer) {
+            return malloc (sz);
+        } else {
+            return malloc (sz + sizeof (NodeBuffer));
+        }
+    }
+
+    size_t Size () {
+        if (type == MLNodeTypeNoBuffer)
+            return sizeof (MLNode);
+        else if (type == MLNodeTypeWithBuffer)
+            return sizeof (MLNode) + sizeof (NodeBuffer);
+        ERROR ("MLNode invalie type");
+        perror ("MLNode invalie type");
+        exit (1);
+    }
 
 public:
     inline void EnableBloomFilter () { isDisabled = false; }
@@ -109,6 +180,41 @@ public:
     }
 
     BloomFilterFix64& GetBloomFilter () { return bloomfilter; }
+
+public:
+    // only for MLNode with NodeBuffer, i.e., type == MLNodeTypeWithBuffer
+    inline NodeBuffer* getNodeBuffer () { return reinterpret_cast<NodeBuffer*> (writeBuffer); }
+
+    bool insert (key_t key, val_t val) {
+        if (type == MLNodeTypeNoBuffer) {
+            ERROR ("insert to MLNode without NodeBuffer");
+            printf ("insert to MLNode without NodeBuffer");
+            exit (1);
+        }
+        return getNodeBuffer ()->insert (key, val);
+    }
+
+    val_t lookup (key_t key) {
+        if (type == MLNodeTypeNoBuffer) {
+            ERROR ("lookup to MLNode without NodeBuffer");
+            printf ("lookup to MLNode without NodeBuffer");
+            exit (1);
+        }
+        return getNodeBuffer ()->lookup (key);
+    }
+
+    bool remove (key_t key) {
+        if (type == MLNodeTypeNoBuffer) {
+            ERROR ("remove to MLNode without NodeBuffer");
+            printf ("rempve to MLNode without NodeBuffer");
+            exit (1);
+        }
+        return getNodeBuffer ()->remove (key);
+    }
+
+    size_t recordCount () { return getNodeBuffer ()->Count (); }
+
+    inline void resetBuffer () { getNodeBuffer ()->Reset (); }
 };
 
 class MiddleLayer {
