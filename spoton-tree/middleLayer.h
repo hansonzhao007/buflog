@@ -10,8 +10,8 @@
 #include "bottomLayer.h"
 #include "logger.h"
 #include "retryLock.h"
+#include "wal.h"
 #include "xxhash.h"
-
 namespace spoton {
 
 using key_t = size_t;
@@ -119,7 +119,7 @@ public:
 
     RetryVersionLock lock;
 
-    char* headptr{nullptr};
+    WALNode* headptr{nullptr};
 
 private:
     BloomFilterFix64 bloomfilter;

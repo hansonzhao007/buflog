@@ -5,6 +5,9 @@
 
 #include "logger.h"
 #include "sptree_meta.h"
+
+constexpr bool EnableWriteBuffer = true;
+
 namespace spoton {
 
 void AsyncInsert (TopLayerPmem* pmem_tree, key_t key, void* ptr) { pmem_tree->insert (key, ptr); };
@@ -19,14 +22,18 @@ void SPTree::DistroySPTree (void) {
     }
 }
 
-SPTree* SPTree::CreateSPTree (bool isDram) {
+SPTree* SPTree::CreateSPTree (bool isDram, bool withLog) {
     // configure bottom layer leafnode as dram node or pmem node
     LeafNode64::kIsLeafNodeDram = isDram;
-
+    if (isDram and withLog) {
+        ERROR ("Cannot use wal in dram mode");
+        perror ("Cannot use wal in dram mode\n");
+        exit (1);
+    }
     SPTree* sptree = nullptr;
     if (isDram) {
         // create a dram version of sptree
-        sptree = new SPTree (isDram);
+        sptree = new SPTree (isDram, false /* dram version does not do wal*/);
         sptree->Initialize (nullptr);
     } else {
         // create the pmem version
@@ -48,15 +55,15 @@ SPTree* SPTree::CreateSPTree (bool isDram) {
         }
         sptree_pmem_root = (SPTreePmemRoot*)RP_malloc (sizeof (SPTreePmemRoot));
         RP_set_root (sptree_pmem_root, 0);
-
-        sptree = new SPTree (isDram);
+        sptree_pmem_root->Reset ();
+        sptree = new SPTree (isDram, withLog);
         sptree->Initialize (sptree_pmem_root);
     }
 
     return sptree;
 }
 
-SPTree* SPTree::RecoverSPTree () {
+SPTree* SPTree::RecoverSPTree (bool withLog) {
     // configure bottom layer leafnode as pmem
     LeafNode64::kIsLeafNodeDram = false;
 
@@ -79,23 +86,24 @@ SPTree* SPTree::RecoverSPTree () {
 
     // 2. obtain the bottom layer head and pmem btree
     SPTreePmemRoot* sptree_pmem_root = RP_get_root<SPTreePmemRoot> (0);
-    SPTree* sptree = new SPTree (false);
+    SPTree* sptree = new SPTree (false, withLog);
     sptree->Recover (sptree_pmem_root);
     return sptree;
 }
 
 void SPTree::Initialize (SPTreePmemRoot* root) {
     // pmem layers
-    botLayer.Initialize (root);
-    topLayerPmem.Initialize (root);
+    mBotLayer.Initialize (root);
+    mTopLayerPmem.Initialize (root);
     if (!LeafNode64::kIsLeafNodeDram) {
         // pmem mode
-        topLayerPmem.insert (kSPTreeMinKey, botLayer.head);
+        mTopLayerPmem.insert (kSPTreeMinKey, mBotLayer.head);
     }
     // dram layers
-    midLayer.head->leafNode = botLayer.head;
-    midLayer.head->next->leafNode = botLayer.head->GetNext ();
-    topLayer.insert (kSPTreeMinKey, midLayer.head);
+    mMidLayer.head->leafNode = mBotLayer.head;
+    mMidLayer.head->next->leafNode = mBotLayer.head->GetNext ();
+    mTopLayer.insert (kSPTreeMinKey, mMidLayer.head);
+    mSPTreePmemRoot = root;
 }
 
 struct RecoverUnit {
@@ -109,15 +117,15 @@ struct RecoverUnit {
 };
 void SPTree::Recover (SPTreePmemRoot* root) {
     // obtain the bottom layer pmem head LeafNode64
-    botLayer.Recover (root);
+    mBotLayer.Recover (root);
     // obtain the pmem btree
-    topLayerPmem.Recover (root);
+    mTopLayerPmem.Recover (root);
 
     // rebuild the top layer and middle layer
 
     // 1. Iterate the leaf page of pmem btree
     std::vector<RecoverUnit> units;
-    topLayerPmem.ScanAllRecord ([&units] (key_t key, void* leafnode_ptr) {
+    mTopLayerPmem.ScanAllRecord ([&units] (key_t key, void* leafnode_ptr) {
         assert (key != 0);
         units.emplace_back (RecoverUnit (key, 0LU, 0LU, new (false) MLNode (false),
                                          reinterpret_cast<LeafNode64*> (leafnode_ptr)));
@@ -130,7 +138,7 @@ void SPTree::Recover (SPTreePmemRoot* root) {
                            for (uint64_t i = range.begin (); i != range.end (); i++) {
                                RecoverUnit& unit = units[i];
                                // insert top layer record
-                               this->topLayer.insert (unit.minKey, unit.mnode);
+                               this->mTopLayer.insert (unit.minKey, unit.mnode);
                                // recover the middle layer node, lkey, hkey
                                uint64_t* lhkeys = reinterpret_cast<uint64_t*> (unit.leafnode);
                                unit.mnode->lkey = lhkeys[0];
@@ -155,17 +163,19 @@ void SPTree::Recover (SPTreePmemRoot* root) {
         mnode_count++;
     }
     INFO ("Create %lu mnodes", mnode_count);
-    midLayer.head = head;
-    prev->next = midLayer.dummyTail;
-    midLayer.dummyTail->prev = prev;
+    mMidLayer.head = head;
+    prev->next = mMidLayer.dummyTail;
+    mMidLayer.dummyTail->prev = prev;
+    mSPTreePmemRoot = root;
 }
 
 void SPTree::WaitAllJobs () {
     // wait all jobs in tpool to finish
-    tpool.wait_for_tasks ();
+    mTpool.wait_for_tasks ();
 }
 
-SPTree::SPTree (bool isDram) : botLayer (isDram), topLayerPmem (isDram), tpool (4) {}
+SPTree::SPTree (bool isDram, bool withLog)
+    : mBotLayer (isDram), mTopLayerPmem (isDram), mTpool (4), mEnableLog (withLog) {}
 
 SPTree::~SPTree () {
     if (!LeafNode64::kIsLeafNodeDram) RP_close ();
@@ -174,9 +184,9 @@ SPTree::~SPTree () {
 std::tuple<MLNode*, uint64_t> SPTree::jumpToMiddleLayer (key_t key) {
 retry1:
     // 1. find the target middle layer node
-    MLNode* mnode = reinterpret_cast<MLNode*> (topLayer.seekLE (key));
+    MLNode* mnode = reinterpret_cast<MLNode*> (mTopLayer.seekLE (key));
     assert (mnode != nullptr);
-    mnode = midLayer.FindTargetMLNode (key, mnode);
+    mnode = mMidLayer.FindTargetMLNode (key, mnode);
 
 retry2:
     bool needRestart = false;
@@ -211,7 +221,7 @@ retry_lock_next:
     // 4b. split the leaf node
     MLNode* old_next_mnode = mnode->next;
     MLNode* new_mnode = new (EnableWriteBuffer) MLNode (EnableWriteBuffer);
-    void* newLeafNodeAddr = botLayer.Malloc (sizeof (LeafNode64));
+    void* newLeafNodeAddr = mBotLayer.Malloc (sizeof (LeafNode64));
     LeafNode64* newLeafNode;
     key_t newlkey;
     std::tie (newLeafNode, newlkey) = mnode->leafNode->Split (
@@ -232,13 +242,13 @@ retry_lock_next:
     mnode->hkey = newlkey;
 
     // 4e. insert newlkey->newNode to dram toplayer
-    topLayer.insert (newlkey, new_mnode);
+    mTopLayer.insert (newlkey, new_mnode);
 
     // 4f. send jobs to background thread pool to update pmem top layer
-    if (topLayerPmem.Exist ()) {
-        tpool.submit ([this, newlkey, newLeafNode] () {
+    if (mTopLayerPmem.Exist ()) {
+        mTpool.submit ([this, newlkey, newLeafNode] () {
             // DEBUG ("pmem btree insert %lu", newlkey);
-            this->topLayerPmem.insert (newlkey, newLeafNode);
+            this->mTopLayerPmem.insert (newlkey, newLeafNode);
         });
     }
 
@@ -255,7 +265,7 @@ retry:
     std::tie (mnode, v) = jumpToMiddleLayer (key);
 
     // 2. check the bloomfilter in middle layer
-    bool maybeExist = midLayer.CouldExist (key, mnode);
+    bool maybeExist = mMidLayer.CouldExist (key, mnode);
     mnode->lock.checkOrRestart (v, needRestart);
     if (needRestart) {
         // version has changed
@@ -284,7 +294,7 @@ retry:
 
     // 4. check the leaf node
     val_t val;
-    bool res = botLayer.Lookup (key, val, mnode->leafNode);
+    bool res = mBotLayer.Lookup (key, val, mnode->leafNode);
     mnode->lock.checkOrRestart (v, needRestart);
     if (needRestart) {
         // version has changed
@@ -314,7 +324,16 @@ retry:
         bool succ = mnode->insert (key, val);
         if (succ) {
             // insert write buffer succ, then we set bloom filter and return
-            midLayer.SetBloomFilter (key, mnode);
+            mMidLayer.SetBloomFilter (key, mnode);
+            if (mEnableLog) {
+                WAL* local_log = WAL::GetThreadLocalLog (mSPTreePmemRoot);
+                if (!local_log) {
+                    ERROR ("obtain nullptr log");
+                    perror ("obtain nullptr log\n");
+                    exit (1);
+                }
+                local_log->Append (kWALNodeValid, key, val, mnode->headptr);
+            }
             mnode->lock.writeUnlock ();
             return true;
         } else {
@@ -328,16 +347,16 @@ retry:
                 auto* buffer = mnode->getNodeBuffer ();
                 for (int i : buffer->ValidBitSet ()) {
                     auto slot = buffer->slots[i];
-                    botLayer.Insert (slot.key, slot.val, mnode->leafNode);
+                    mBotLayer.Insert (slot.key, slot.val, mnode->leafNode);
                 }
                 // insert this record
-                bool res = botLayer.Insert (key, val, mnode->leafNode);
+                bool res = mBotLayer.Insert (key, val, mnode->leafNode);
                 if (!res) {
                     perror ("fail insertion to bottom layer");
                     ERROR ("fail insertion to bottom layer");
                     exit (1);
                 }
-                midLayer.SetBloomFilter (key, mnode);
+                mMidLayer.SetBloomFilter (key, mnode);
 
                 // clear write buffer
                 mnode->resetBuffer ();
@@ -362,7 +381,7 @@ retry:
     }
 
     // 4. insert to bottom layer
-    bool bottomInsertSucc = botLayer.Insert (key, val, mnode->leafNode);
+    bool bottomInsertSucc = mBotLayer.Insert (key, val, mnode->leafNode);
     if (!bottomInsertSucc) {
         // fail to insert, split
         std::vector<std::pair<key_t, val_t>> toMerge;
@@ -372,7 +391,7 @@ retry:
     }
 
     // 5. succ. update bloomfilter in Dram
-    midLayer.SetBloomFilter (key, mnode);
+    mMidLayer.SetBloomFilter (key, mnode);
     mnode->lock.writeUnlock ();
     return true;
 }
@@ -386,7 +405,7 @@ retry:
 
     // 2. check the bloomfilter in middle layer
     bool needRestart = false;
-    bool maybeExist = midLayer.CouldExist (key, mnode);
+    bool maybeExist = mMidLayer.CouldExist (key, mnode);
     mnode->lock.checkOrRestart (v, needRestart);
     if (needRestart) {
         // version has changed
@@ -417,14 +436,14 @@ retry:
     }
 
     // 4. try to remove from bottom layer
-    bool res = botLayer.Remove (key, mnode->leafNode);
+    bool res = mBotLayer.Remove (key, mnode->leafNode);
     mnode->lock.writeUnlock ();
     return res;
 }
 
 std::string SPTree::ToString () {
     std::string res;
-    MLNode* cur = midLayer.head;
+    MLNode* cur = mMidLayer.head;
     size_t total_record = 0;
     while (cur != nullptr) {
         std::string row;
@@ -452,10 +471,10 @@ std::string SPTree::ToString () {
 }
 
 std::string SPTree::ToStats () {
-    std::string toplayer_stats = topLayer.ToStats () + "\n";
-    std::string midlayer_stats = midLayer.ToStats () + "\n";
-    std::string botlayer_stats = botLayer.ToStats () + "\n";
-    std::string toplayer_pmem_stats = topLayerPmem.ToStats ();
+    std::string toplayer_stats = mTopLayer.ToStats () + "\n";
+    std::string midlayer_stats = mMidLayer.ToStats () + "\n";
+    std::string botlayer_stats = mBotLayer.ToStats () + "\n";
+    std::string toplayer_pmem_stats = mTopLayerPmem.ToStats ();
     return toplayer_stats + midlayer_stats + botlayer_stats + toplayer_pmem_stats;
 }
 

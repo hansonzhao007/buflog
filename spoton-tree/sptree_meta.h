@@ -1,20 +1,45 @@
 #ifndef SPOTON_TREE_META_H
 #define SPOTON_TREE_META_H
 
+#include <atomic>
 // ralloc
 #include "pptr.hpp"
 #include "ralloc.hpp"
 
-constexpr bool EnableWriteBuffer = false;
-
 namespace spoton {
+
+static constexpr size_t SPTREE_LOG_SIZE = 64LU << 30;  // 64GB for log
+static size_t SPTREE_LOCAL_LOG_SIZE{0};                // this is the log size for each thread
+static constexpr size_t SPTREE_PMEM_SIZE{((128LU << 30)) + SPTREE_LOG_SIZE};  // 128GB for data
+
+static inline void SPTreeMemFlush (void* addr) { asm volatile("clwb (%0)" ::"r"(addr)); }
+static inline void SPTreeMemFlushFence () { asm volatile("sfence" ::: "memory"); }
+
+static inline void SPTreeCLFlush (char* data, int len) {
+    volatile char* ptr = (char*)((unsigned long)data & ~(64 - 1));
+    for (; ptr < data + len; ptr += 64) {
+        SPTreeMemFlush ((void*)ptr);
+    }
+    SPTreeMemFlushFence ();
+}
+
 constexpr size_t kSPTreeMinKey = 1;
 class btree;
 class LeafNode64;
+class WAL;
+
 struct SPTreePmemRoot {
-    pptr<btree> topLayerPmemBtree_tree_pmem;
-    pptr<LeafNode64> bottomLayerLeafNode64_head;
-    pptr<LeafNode64> bottomLayerLeafNode64_dummyTail;
+    pptr<btree> topLayerPmemBtree_tree_pmem{nullptr};
+    pptr<LeafNode64> bottomLayerLeafNode64_head{nullptr};
+    pptr<LeafNode64> bottomLayerLeafNode64_dummyTail{nullptr};
+    pptr<char> log_base_addrs[128]{nullptr};  // reserved wal space
+    std::atomic<size_t> log_count{0};         // how many logs for this sptree
+    void Reset () {
+        topLayerPmemBtree_tree_pmem = nullptr;
+        bottomLayerLeafNode64_head = nullptr;
+        bottomLayerLeafNode64_dummyTail = nullptr;
+        log_count = 0;
+    }
 };
 
 class NodeBitSet {

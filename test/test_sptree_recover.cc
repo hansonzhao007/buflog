@@ -33,7 +33,7 @@ int main (int argc, char* argv[]) {
 
     if (FLAGS_mode == "insert") {
         SPTree::DistroySPTree ();
-        tree = SPTree::CreateSPTree (false);
+        tree = SPTree::CreateSPTree (false, false);
 
         {
             util::IPMWatcher watcher ("sptreeInsert");
@@ -76,7 +76,7 @@ int main (int argc, char* argv[]) {
         }
     } else if (FLAGS_mode == "recover") {
         auto starttime = std::chrono::system_clock::now ();
-        tree = SPTree::RecoverSPTree ();
+        tree = SPTree::RecoverSPTree (false);
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
             std::chrono::system_clock::now () - starttime);
         printf ("recover duration %f s.\n", duration.count () / 1000000.0);

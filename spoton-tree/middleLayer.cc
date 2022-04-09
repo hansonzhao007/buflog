@@ -126,7 +126,8 @@ bool NodeBuffer::remove (key_t _key) {
 }
 
 MiddleLayer::MiddleLayer () {
-    head = new (EnableWriteBuffer) MLNode (EnableWriteBuffer);
+    // do not use MLNode with write buffer for head and dummy tail
+    head = new (false) MLNode (false);
     dummyTail = new (false) MLNode (false);
     head->EnableBloomFilter ();
     dummyTail->EnableBloomFilter ();

@@ -11,7 +11,7 @@ using namespace spoton;
 
 class SPTreeDramTest : public testing::Test {
 public:
-    SPTreeDramTest () { tree_ = spoton::SPTree::CreateSPTree (true); }
+    SPTreeDramTest () { tree_ = spoton::SPTree::CreateSPTree (true, false); }
     ~SPTreeDramTest () { delete tree_; }
     SPTree* tree_;
 
@@ -43,7 +43,7 @@ public:
     SPTreePmemTest () {}
     ~SPTreePmemTest () {}
 
-    void Create () { tree_ = spoton::SPTree::CreateSPTree (false); }
+    void Create () { tree_ = spoton::SPTree::CreateSPTree (false, false); }
 
     void Destroy () {
         if (tree_) delete tree_;
