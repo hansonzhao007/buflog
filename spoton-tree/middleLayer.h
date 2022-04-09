@@ -141,10 +141,13 @@ public:
           headptr (nullptr),
           leafNode (nullptr),
           isDisabled (true) {
-        if (withBuffer)
+        if (withBuffer) {
             type = MLNodeTypeWithBuffer;
-        else
+            getNodeBuffer ()->Reset ();
+        } else {
             type = MLNodeTypeNoBuffer;
+        }
+        DEBUG ("create MLNode 0x%lx, buffer addr: 0x%lx", this, writeBuffer);
     }
 
     static void* operator new (size_t sz, bool withBuffer) {

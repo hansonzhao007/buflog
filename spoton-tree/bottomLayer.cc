@@ -60,7 +60,6 @@ LeafNode64* LeafNode64::GetNext () {
 }
 
 bool LeafNode64::Insert (key_t _key, val_t _val) {
-    DEBUG ("Insert %lu, %lu", _key, _val);
     // obtain key hash
     key_t key = _key;
     val_t val = _val;
@@ -166,7 +165,7 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
     std::vector<std::pair<key_t, val_t>>& toMergedRecords, void* newNodeAddr,
     BloomFilterFix64& bleft, BloomFilterFix64& bright) {
     // should lock both me and my next node
-    DEBUG ("Split leaf count %lu. valid: %lx", Count (), valid_bitmap);
+
     LeafNodeSlot copied_slots[64];
     // assert (Full ());
 
@@ -189,7 +188,6 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
         auto slot = this->slots[i];
         if (slot.key >= median && isValid (i)) {
             SetErase (i);
-            DEBUG ("right shift insert %d: %lu, %lu", i, slot.key, slot.val);
             newNode->Insert (slot.key, slot.val);
         }
     }
@@ -214,15 +212,12 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
     bleft.reset ();
     bright.reset ();
     for (auto [key, val] : toMergedRecords) {
-        DEBUG ("merge %lu, %lu", key, val);
         if (key < median) {
             // to left half
-            DEBUG ("merge to leaf %lu, %lu", key, val);
             this->Insert (key, val);
             bleft.set (key);
         } else {
             // to right half
-            DEBUG ("merge to right %lu, %lu", key, val);
             newNode->Insert (key, val);
             bright.set (key);
         }
@@ -284,7 +279,6 @@ void BottomLayer::Initialize (SPTreePmemRoot* root) {
 void BottomLayer::Recover (SPTreePmemRoot* root) { head = root->bottomLayerLeafNode64_head; }
 
 bool BottomLayer::Insert (key_t key, val_t val, LeafNode64* bnode) {
-    DEBUG ("Bottom insert %lu, %lu", key, val);
     return bnode->Insert (key, val);
 }
 

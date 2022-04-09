@@ -118,7 +118,6 @@ void SPTree::Recover (SPTreePmemRoot* root) {
     // 1. Iterate the leaf page of pmem btree
     std::vector<RecoverUnit> units;
     topLayerPmem.ScanAllRecord ([&units] (key_t key, void* leafnode_ptr) {
-        DEBUG ("scan top key %lu", key);
         assert (key != 0);
         units.emplace_back (RecoverUnit (key, 0LU, 0LU, new (false) MLNode (false),
                                          reinterpret_cast<LeafNode64*> (leafnode_ptr)));
@@ -296,7 +295,6 @@ retry:
 }
 
 bool SPTree::insert (key_t key, TID val) {
-    DEBUG ("new insert %lu, %lu", key, val);
 retry:
     // 1. find the target middle layer node, and its version snapshot
     MLNode* mnode;
@@ -330,11 +328,9 @@ retry:
                 auto* buffer = mnode->getNodeBuffer ();
                 for (int i : buffer->ValidBitSet ()) {
                     auto slot = buffer->slots[i];
-                    DEBUG ("buffer 0x%lx flush insert %lu, %lu", buffer, slot.key, slot.val);
                     botLayer.Insert (slot.key, slot.val, mnode->leafNode);
                 }
                 // insert this record
-                DEBUG ("buffer new insert %lu, %lu", key, val);
                 bool res = botLayer.Insert (key, val, mnode->leafNode);
                 if (!res) {
                     perror ("fail insertion to bottom layer");
@@ -354,10 +350,8 @@ retry:
             std::vector<std::pair<key_t, val_t>> toMerge;
             for (int i : buffer->ValidBitSet ()) {
                 auto slot = buffer->slots[i];
-                DEBUG ("add toMerge %lu", slot.key);
                 toMerge.push_back ({slot.key, slot.val});
             }
-            DEBUG ("add toMerge %lu", key);
             toMerge.push_back ({key, val});
             SplitMNodeAndUnlock (mnode, toMerge);
 
@@ -368,7 +362,6 @@ retry:
     }
 
     // 4. insert to bottom layer
-    DEBUG ("No buffer insert %lu, %lu", key, val);
     bool bottomInsertSucc = botLayer.Insert (key, val, mnode->leafNode);
     if (!bottomInsertSucc) {
         // fail to insert, split

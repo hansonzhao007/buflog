@@ -60,7 +60,7 @@ NodeBitSet NodeBuffer::MatchBitSet (uint8_t tag) {
 }
 
 bool NodeBuffer::insert (key_t _key, val_t _val) {
-    DEBUG ("buffer 0x%lx insert %lu, %lu. count %lu", this, _key, _val, Count ());
+    // DEBUG ("0x%lx  buffer insert %lu, %lu. count %lu", this, _key, _val, Count ());
     // obtain key hash
     key_t key = _key;
     val_t val = _val;
@@ -180,7 +180,7 @@ std::string MiddleLayer::ToStats () {
     size_t total_size = 0;
     size_t total_count = 0;
     while (cur) {
-        DEBUG ("mnode %lu, %lu", cur->lkey, cur->hkey);
+        // DEBUG ("mnode %lu, %lu", cur->lkey, cur->hkey);
         total_size += cur->Size ();
         cur = cur->next;
         total_count++;
