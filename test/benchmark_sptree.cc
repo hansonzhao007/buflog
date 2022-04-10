@@ -30,7 +30,7 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
-DEFINE_uint32 (batch, 100000, "report batch");
+DEFINE_uint32 (batch, 1000, "report batch");
 DEFINE_uint32 (readtime, 0, "if 0, then we read all keys");
 DEFINE_uint32 (thread, 1, "");
 DEFINE_uint64 (report_interval, 0, "Report interval in seconds");
@@ -449,10 +449,12 @@ public:
                 method = &Benchmark::Status;
             }
 
+            // reset global log id
+            spoton::WAL::global_log_id_.store (0);
+
             if (fresh_db) {
                 spoton::SPTree::DistroySPTree ();
-                spoton::EnableWriteBuffer = FLAGS_writebuffer;
-                tree_ = spoton::SPTree::CreateSPTree (FLAGS_dram, FLAGS_log);
+                tree_ = spoton::SPTree::CreateSPTree (FLAGS_dram, FLAGS_writebuffer, FLAGS_log);
                 if (!FLAGS_dram && FLAGS_log) {
                     // create wal for sptree's each thread
                     spoton::WAL::CreateLogsForThread (tree_->mSPTreePmemRoot, FLAGS_thread);
@@ -509,7 +511,6 @@ public:
         auto key_iterator = key_trace_->iterate_between (start_offset, start_offset + interval);
 
         size_t not_find = 0;
-
         Duration duration (FLAGS_readtime, interval);
         thread->stats.Start ();
         while (!duration.Done (batch) && key_iterator.Valid ()) {
@@ -645,7 +646,7 @@ public:
     void DoRecover (ThreadState* thread) {
         // recover sptree
         auto starttime = std::chrono::system_clock::now ();
-        tree_ = spoton::SPTree::RecoverSPTree (FLAGS_log);
+        tree_ = spoton::SPTree::RecoverSPTree (FLAGS_writebuffer, FLAGS_log);
         auto duration = std::chrono::duration_cast<std::chrono::microseconds> (
             std::chrono::system_clock::now () - starttime);
         printf ("recover time: %f s.\n", duration.count () / 1000000.0);
@@ -1025,8 +1026,7 @@ private:
         PrintEnvironment ();
         fprintf (stdout, "Type:                  SPTree\n");
         fprintf (stdout, "Dram mode:             %s\n", FLAGS_dram ? "true" : "false");
-        fprintf (stdout, "Enable Write Buffer:   %s\n",
-                 spoton::EnableWriteBuffer ? "true" : "false");
+        fprintf (stdout, "Enable Write Buffer:   %s\n", FLAGS_writebuffer ? "true" : "false");
         fprintf (stdout, "Enable WAL:            %s\n", FLAGS_log ? "true" : "false");
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);

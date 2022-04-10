@@ -26,7 +26,7 @@ void multithreaded (char** argv) {
             keys[i] = (static_cast<uint64_t> (rand ()) << 30) | static_cast<uint32_t> (rand ());
 
     printf ("operation,n,ops/s\n");
-    spoton::SPTree* tree = spoton::SPTree::CreateSPTree (true, false);
+    spoton::SPTree* tree = spoton::SPTree::CreateSPTree (true, false, false);
 
     // Build tree
     {

@@ -3,6 +3,8 @@
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 
+#include <unordered_map>
+
 #include "logger.h"
 #include "sptree_meta.h"
 
@@ -20,7 +22,7 @@ void SPTree::DistroySPTree (void) {
     }
 }
 
-SPTree* SPTree::CreateSPTree (bool isDram, bool withLog) {
+SPTree* SPTree::CreateSPTree (bool isDram, bool withWriteBuffer, bool withLog) {
     // configure bottom layer leafnode as dram node or pmem node
     LeafNode64::kIsLeafNodeDram = isDram;
     if (isDram and withLog) {
@@ -31,7 +33,7 @@ SPTree* SPTree::CreateSPTree (bool isDram, bool withLog) {
     SPTree* sptree = nullptr;
     if (isDram) {
         // create a dram version of sptree
-        sptree = new SPTree (isDram, false /* dram version does not do wal*/);
+        sptree = new SPTree (isDram, withWriteBuffer, false /* dram version does not do wal*/);
         sptree->Initialize (nullptr);
     } else {
         // create the pmem version
@@ -54,14 +56,14 @@ SPTree* SPTree::CreateSPTree (bool isDram, bool withLog) {
         sptree_pmem_root = (SPTreePmemRoot*)RP_malloc (sizeof (SPTreePmemRoot));
         RP_set_root (sptree_pmem_root, 0);
         sptree_pmem_root->Reset ();
-        sptree = new SPTree (isDram, withLog);
+        sptree = new SPTree (isDram, withWriteBuffer, withLog);
         sptree->Initialize (sptree_pmem_root);
     }
 
     return sptree;
 }
 
-SPTree* SPTree::RecoverSPTree (bool withLog) {
+SPTree* SPTree::RecoverSPTree (bool withWriteBuffer, bool withLog) {
     // configure bottom layer leafnode as pmem
     LeafNode64::kIsLeafNodeDram = false;
 
@@ -84,7 +86,7 @@ SPTree* SPTree::RecoverSPTree (bool withLog) {
 
     // 2. obtain the bottom layer head and pmem btree
     SPTreePmemRoot* sptree_pmem_root = RP_get_root<SPTreePmemRoot> (0);
-    SPTree* sptree = new SPTree (false, withLog);
+    SPTree* sptree = new SPTree (false, withWriteBuffer, withLog);
     sptree->Recover (sptree_pmem_root);
     return sptree;
 }
@@ -172,8 +174,12 @@ void SPTree::WaitAllJobs () {
     mTpool.wait_for_tasks ();
 }
 
-SPTree::SPTree (bool isDram, bool withLog)
-    : mBotLayer (isDram), mTopLayerPmem (isDram), mTpool (4), mEnableLog (withLog) {}
+SPTree::SPTree (bool isDram, bool withWriteBuffer, bool withLog)
+    : mBotLayer (isDram),
+      mTopLayerPmem (isDram),
+      mTpool (4),
+      mEnableWriteBuffer (withWriteBuffer),
+      mEnableLog (withLog) {}
 
 SPTree::~SPTree () {
     if (!LeafNode64::kIsLeafNodeDram) RP_close ();
@@ -206,7 +212,7 @@ retry2:
 }
 
 void SPTree::SplitMNodeAndUnlock (MLNode* mnode,
-                                  std::vector<std::pair<key_t, val_t>>& toMergedRecords) {
+                                  const std::vector<std::pair<key_t, val_t>>& toMergedRecords) {
     // assert mnode has already been locked
 retry_lock_next:
     bool needRestart = false;
@@ -218,7 +224,7 @@ retry_lock_next:
 
     // 4b. split the leaf node
     MLNode* old_next_mnode = mnode->next;
-    MLNode* new_mnode = new (EnableWriteBuffer) MLNode (EnableWriteBuffer);
+    MLNode* new_mnode = new (mEnableWriteBuffer) MLNode (mEnableWriteBuffer);
     void* newLeafNodeAddr = mBotLayer.Malloc (sizeof (LeafNode64));
     LeafNode64* newLeafNode;
     key_t newlkey;
@@ -326,11 +332,11 @@ retry:
             if (mEnableLog) {
                 WAL* local_log = WAL::GetThreadLocalLog (mSPTreePmemRoot);
                 if (!local_log) {
-                    ERROR ("obtain nullptr log");
-                    perror ("obtain nullptr log\n");
+                    ERROR ("intert obtain nullptr log");
+                    perror ("inert obtain nullptr log\n");
                     exit (1);
                 }
-                local_log->Append (kWALNodeValid, key, val, mnode->headptr);
+                local_log->Append (kWALNodeInsert, key, val, mnode->headptr);
             }
             mnode->lock.writeUnlock ();
             return true;
@@ -343,17 +349,36 @@ retry:
             if (count1 + count2 <= LeafNode64::kLeafNodeCapacity - 1) {
                 // insert all records in the write buffer
                 auto* buffer = mnode->getNodeBuffer ();
+                NodeBitSet emptyBitSet = mnode->leafNode->EmptyBitSet ();
+                NodeBitSet toAddedBits;
                 for (int i : buffer->ValidBitSet ()) {
                     auto slot = buffer->slots[i];
-                    mBotLayer.Insert (slot.key, slot.val, mnode->leafNode);
+                    int si = *emptyBitSet;
+                    bool res =
+                        mnode->leafNode->InsertiWithoutSetValidBitmap (slot.key, slot.val, si);
+                    if (res) {
+                        // new insert to leafnode. key is inserted in slot[si]
+                        toAddedBits.set (si);
+                        emptyBitSet++;
+                    } else {
+                        // means we overwrite an existing key and we do not go to next
+                        // emptyBitSet
+                        DEBUG ("overwrite key %lu when flush buffer", slot.key);
+                    }
                 }
                 // insert this record
-                bool res = mBotLayer.Insert (key, val, mnode->leafNode);
-                if (!res) {
-                    perror ("fail insertion to bottom layer");
-                    ERROR ("fail insertion to bottom layer");
-                    exit (1);
+                int si = *emptyBitSet;
+                bool res = mnode->leafNode->InsertiWithoutSetValidBitmap (key, val, si);
+                if (res) {
+                    // new insert to leafnode
+                    toAddedBits.set (si);
                 }
+
+                SPTreeCLFlush ((char*)mnode->leafNode, sizeof (LeafNode64));
+                mnode->leafNode->valid_bitmap |= toAddedBits.bit ();
+                // batch update the bitmap
+                SPTreeMemFlush (&mnode->leafNode->valid_bitmap);
+                SPTreeMemFlushFence ();
                 mMidLayer.SetBloomFilter (key, mnode);
 
                 // clear write buffer
@@ -382,9 +407,7 @@ retry:
     bool bottomInsertSucc = mBotLayer.Insert (key, val, mnode->leafNode);
     if (!bottomInsertSucc) {
         // fail to insert, split
-        std::vector<std::pair<key_t, val_t>> toMerge;
-        toMerge.push_back ({key, val});
-        SplitMNodeAndUnlock (mnode, toMerge);
+        SplitMNodeAndUnlock (mnode, {{key, val}});
         return true;
     }
 
@@ -427,9 +450,23 @@ retry:
     // 3. try to remove from write buffer
     if (mnode->type == MLNodeTypeWithBuffer) {
         bool removeMNodeSucc = mnode->remove (key);
+        bool removeLeafNodeSucc = mBotLayer.Remove (key, mnode->leafNode);
         if (removeMNodeSucc) {
+            if (mEnableLog) {
+                WAL* local_log = WAL::GetThreadLocalLog (mSPTreePmemRoot);
+                if (!local_log) {
+                    ERROR ("remove obtain nullptr log");
+                    perror ("remove obtain nullptr log\n");
+                    exit (1);
+                }
+                local_log->Append (kWALNodeRemove, key, 0, mnode->headptr);
+            }
+            // we also need to remove it from the leafnode (the old version)
             mnode->lock.writeUnlock ();
             return true;
+        } else {
+            mnode->lock.writeUnlock ();
+            return removeLeafNodeSucc;
         }
     }
 

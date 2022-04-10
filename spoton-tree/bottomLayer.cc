@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <climits>
-#include <unordered_set>
 
 #include "logger.h"
 #include "xxhash.h"
@@ -60,20 +59,6 @@ LeafNode64* LeafNode64::GetNext () {
 }
 
 bool LeafNode64::InsertiWithoutSetValidBitmap (key_t _key, val_t _val, int si) {
-    if (isValid (si)) return false;
-    // obtain key hash
-    key_t key = _key;
-    val_t val = _val;
-    uint64_t hash = XXH3_64bits (&key, 8);
-    uint8_t tag = hash & 0xFF;
-    auto& slot = this->slots[si];
-    slot.key = key;
-    slot.val = val;
-    this->tags[si] = tag;
-    return true;
-}
-
-std::tuple<bool, int> LeafNode64::Insert (key_t _key, val_t _val) {
     // obtain key hash
     key_t key = _key;
     val_t val = _val;
@@ -85,8 +70,33 @@ std::tuple<bool, int> LeafNode64::Insert (key_t _key, val_t _val) {
         if (record.key == key) {
             // update
             record.val = val;
-            SPTreeMemFlush (&this->slots[i]);
-            SPTreeMemFlushFence ();
+            return false;
+        }
+    }
+
+    auto& slot = this->slots[si];
+    slot.key = key;
+    slot.val = val;
+    this->tags[si] = tag;
+    return true;
+}
+
+std::tuple<bool, int> LeafNode64::Insert (key_t _key, val_t _val, bool withFLush) {
+    // obtain key hash
+    key_t key = _key;
+    val_t val = _val;
+    uint64_t hash = XXH3_64bits (&key, 8);
+    uint8_t tag = hash & 0xFF;
+
+    for (int i : MatchBitSet (tag)) {
+        auto& record = this->slots[i];
+        if (record.key == key) {
+            // update
+            record.val = val;
+            if (withFLush) {
+                SPTreeMemFlush (&this->slots[i]);
+                SPTreeMemFlushFence ();
+            }
             return {true, i};
         }
     }
@@ -100,9 +110,11 @@ std::tuple<bool, int> LeafNode64::Insert (key_t _key, val_t _val) {
             record.val = val;
             // 2. set tag
             this->tags[i] = tag;
-            SPTreeMemFlush (&this->slots[i]);
-            SPTreeMemFlush (&this->tags[i]);
-            SPTreeMemFlushFence ();
+            if (withFLush) {
+                SPTreeMemFlush (&this->slots[i]);
+                SPTreeMemFlush (&this->tags[i]);
+                SPTreeMemFlushFence ();
+            }
             // 3. validate bitmap
             SetValid (i);
             return {true, i};
@@ -119,10 +131,12 @@ bool LeafNode64::Remove (key_t _key) {
     uint8_t tag = hash & 0xFF;
 
     for (int i : MatchBitSet (tag)) {
-        auto& record = this->slots[i];
+        auto record = this->slots[i];
         if (record.key == key) {
             // find key
             SetErase (i);
+            SPTreeMemFlush ((char*)&this->valid_bitmap);
+            SPTreeMemFlushFence ();
             return true;
         }
     }
@@ -181,9 +195,11 @@ void LeafNode64::Sort () {
 }
 
 std::tuple<LeafNode64*, key_t> LeafNode64::Split (
-    std::vector<std::pair<key_t, val_t>>& toMergedRecords, void* newNodeAddr,
+    const std::vector<std::pair<key_t, val_t>>& toMergedRecords, void* newNodeAddr,
     BloomFilterFix64& bloomfilterLeft, BloomFilterFix64& bloomfilterRight) {
     // should lock both me and my next node
+
+    // toMergedRecords may have overlaped keys with me, toMergedRecords should overwrite me
     bloomfilterLeft.reset ();
     bloomfilterRight.reset ();
 
@@ -211,9 +227,15 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
         } else {
             this->SetErase (si);  // clear the shifted kv from left
             int right_si = *rightEmptySet;
-            rightValidSet.set (right_si);
-            newNode->InsertiWithoutSetValidBitmap (key, val, right_si);
-            ++rightEmptySet;
+            bool res = newNode->InsertiWithoutSetValidBitmap (key, val, right_si);
+            if (!res) {
+                // overwrite happens
+                ERROR ("Overwirte happens when shift kvs to new leaf node");
+                exit (1);
+            } else {
+                rightValidSet.set (right_si);
+                ++rightEmptySet;
+            }
             bloomfilterRight.set (key);
         }
     }
@@ -240,16 +262,24 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
         if (key < median) {
             // to left half
             int left_si = *leftEmptySet;
-            leftValidSet.set (left_si);
-            this->InsertiWithoutSetValidBitmap (key, val, left_si);
-            ++leftEmptySet;
+            bool res = this->InsertiWithoutSetValidBitmap (key, val, left_si);
+            if (!res) {
+                DEBUG ("Overwrite to left half leafnode when merging");
+            } else {
+                leftValidSet.set (left_si);
+                ++leftEmptySet;
+            }
             bloomfilterLeft.set (key);
         } else {
             // to right half
             int right_si = *rightEmptySet;
             rightValidSet.set (right_si);
-            newNode->InsertiWithoutSetValidBitmap (key, val, right_si);
-            ++rightEmptySet;
+            bool res = newNode->InsertiWithoutSetValidBitmap (key, val, right_si);
+            if (!res) {
+                DEBUG ("Overwrite to right half leafnode when merging");
+            } else {
+                ++rightEmptySet;
+            }
             bloomfilterRight.set (key);
         }
     }
@@ -258,8 +288,8 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
     // 7. batch set the valid_bitmap of left and right nodes
     this->valid_bitmap |= leftValidSet.bit ();
     newNode->valid_bitmap |= rightValidSet.bit ();
-    SPTreeMemFlush (&this->valid_bitmap);
     SPTreeMemFlush (&newNode->valid_bitmap);
+    SPTreeMemFlush (&this->valid_bitmap);
     SPTreeMemFlushFence ();
     return {newNode, median};
 };
@@ -311,7 +341,7 @@ void BottomLayer::Initialize (SPTreePmemRoot* root) {
 void BottomLayer::Recover (SPTreePmemRoot* root) { head = root->bottomLayerLeafNode64_head; }
 
 bool BottomLayer::Insert (key_t key, val_t val, LeafNode64* bnode) {
-    return std::get<0> (bnode->Insert (key, val));
+    return std::get<0> (bnode->Insert (key, val, true));
 }
 
 bool BottomLayer::Lookup (key_t key, val_t& val, LeafNode64* bnode) {

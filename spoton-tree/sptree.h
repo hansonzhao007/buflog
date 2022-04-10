@@ -25,6 +25,7 @@ public:
     TopLayerPmem mTopLayerPmem;  // async update the pmem top layer
     thread_pool mTpool;
 
+    bool mEnableWriteBuffer;
     WAL mWAL;
     bool mEnableLog;
 
@@ -32,18 +33,19 @@ public:
 
 public:
     static void DistroySPTree ();
-    static SPTree* CreateSPTree (bool isDram, bool withLog);
+    static SPTree* CreateSPTree (bool isDram, bool withWriteBuffer, bool withLog);
     // recover sptree from pmem
-    static SPTree* RecoverSPTree (bool withLog);
+    static SPTree* RecoverSPTree (bool withWriteBuffer, bool withLog);
 
     void WaitAllJobs ();
 
 private:
     // You should not call the constructor directly, use CreateSPTree instead
-    SPTree (bool isDram, bool withLog);
+    SPTree (bool isDram, bool withWriteBuffer, bool withLog);
     void Initialize (SPTreePmemRoot*);
     void Recover (SPTreePmemRoot*);
-    void SplitMNodeAndUnlock (MLNode* mnode, std::vector<std::pair<key_t, val_t>>& toMergedRecords);
+    void SplitMNodeAndUnlock (MLNode* mnode,
+                              const std::vector<std::pair<key_t, val_t>>& toMergedRecords);
 
 public:
     ~SPTree ();

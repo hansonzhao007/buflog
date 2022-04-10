@@ -136,7 +136,7 @@ TEST (BottomLayer, Basic) {
     LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
     for (size_t i = 0; i < 64; i++) {
-        auto [res, si] = leafnode.Insert (i, i);
+        auto [res, si] = leafnode.Insert (i, i, false);
         ASSERT_TRUE (res);
     }
 
@@ -148,7 +148,7 @@ TEST (BottomLayer, UnSort) {
     LeafNode64 leafnode;
 
     for (size_t i = 0; i < 64; i++) {
-        auto [res, si] = leafnode.Insert (1000 - i, i);
+        auto [res, si] = leafnode.Insert (1000 - i, i, false);
         ASSERT_TRUE (res);
     }
 
@@ -166,7 +166,7 @@ TEST (BottomLayer, Sort) {
     LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
     for (size_t i = 0; i < 64; i++) {
-        auto [res, si] = leafnode.Insert (random (), i);
+        auto [res, si] = leafnode.Insert (random (), i, false);
         ASSERT_TRUE (res);
     }
 
@@ -190,7 +190,7 @@ TEST (BottomLayer, Split) {
     dummy.SetPrev (&leafnode);
 
     for (size_t i = 0; i < 64; i++) {
-        auto [res, si] = leafnode.Insert (i, i);
+        auto [res, si] = leafnode.Insert (i, i, false);
         ASSERT_TRUE (res);
     }
 
@@ -198,9 +198,7 @@ TEST (BottomLayer, Split) {
 
     void* addr = malloc (sizeof (LeafNode64));
     BloomFilterFix64 left, right;
-    std::vector<std::pair<size_t, size_t>> toMerge;
-    toMerge.push_back ({64, 64});
-    auto [new_leaf_node, new_lkey] = leafnode.Split (toMerge, addr, left, right);
+    auto [new_leaf_node, new_lkey] = leafnode.Split ({{64, 64}}, addr, left, right);
 
     for (int i = 0; i < 32; i++) {
         val_t val;

@@ -27,11 +27,10 @@ namespace spoton {
  *        so the recover speed should be fast.
  */
 enum WALNodeType : unsigned char {
-    kWALNodeValid = 0x10,  // a valid data log node
-    kWALNodeLinkEnd =
-        0x11,  // reach to a end of the linked list because the data in buffer has been merged
-    kWALNodeCheckpoint =
-        0x12,  // the checkpoint node. recover should stop reverse scan if this node appears.
+    kWALNodeInsert = 0x10,  // a valid data log node
+    kWALNodeRemove,         // a valid data log node
+    kWALNodeLinkEnd,        // reach to the end of the linked list because of buffer merge
+    kWALNodeCheckpoint,     // the checkpoint node.
     kWALNodeEnd
 };
 
@@ -79,7 +78,7 @@ public:
 
     inline bool Valid (void) {
         return this->type_ < kWALNodeEnd &&  // type is valid
-               this->type_ >= kWALNodeValid;
+               this->type_ >= kWALNodeInsert;
     }
 
     std::string ToString (void) {

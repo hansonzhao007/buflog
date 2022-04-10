@@ -1,12 +1,14 @@
 #ifndef SPOTON_TREE_BOTTOM_LAYER_H
 #define SPOTON_TREE_BOTTOM_LAYER_H
 
-// ralloc
+#include <unordered_map>
 
-#include "pptr.hpp"
-#include "ralloc.hpp"
 #include "retryLock.h"
 #include "sptree_meta.h"
+// ralloc
+#include "pptr.hpp"
+#include "ralloc.hpp"
+
 namespace spoton {
 
 class BloomFilterFix64;
@@ -68,10 +70,11 @@ public:
     LeafNode64 ();
 
 public:
-    // Insert the slot si without flushing and without setting the bitmap. Used in splitting.
+    // Insert the slot si without flushing and without setting the bitmap.
+    // return true if it is inserted to si. If overwrite happens, return false;
     bool InsertiWithoutSetValidBitmap (key_t key, val_t val, int si);
 
-    std::tuple<bool, int> Insert (key_t key, val_t val);
+    std::tuple<bool, int> Insert (key_t key, val_t val, bool wittFlush);
     bool Lookup (key_t key, val_t& val);
     bool Remove (key_t key);
 
@@ -80,9 +83,9 @@ public:
 
     // spilt the this node
     // return a new node and its lkey
-    std::tuple<LeafNode64*, key_t> Split (std::vector<std::pair<key_t, val_t>>& toMergedRecords,
-                                          void* newLeafNodeAddr, BloomFilterFix64& bleft,
-                                          BloomFilterFix64& bright);
+    std::tuple<LeafNode64*, key_t> Split (
+        const std::vector<std::pair<key_t, val_t>>& toMergedRecords, void* newLeafNodeAddr,
+        BloomFilterFix64& bleft, BloomFilterFix64& bright);
 
 public:
     void SetPrev (LeafNode64* ptr);
@@ -96,9 +99,9 @@ public:
     inline size_t Count () { return __builtin_popcountll (valid_bitmap); }
     inline NodeBitSet ValidBitSet () { return NodeBitSet (valid_bitmap); }
     inline NodeBitSet EmptyBitSet () { return NodeBitSet (~valid_bitmap); }
-    inline void SetValid (int pos) { valid_bitmap |= (1L << pos); }
-    inline void SetErase (int pos) { valid_bitmap &= ~(1L << pos); }
-    inline bool isValid (int pos) { return (valid_bitmap & (1L << pos)) != 0; }
+    inline void SetValid (int pos) { valid_bitmap |= (1LU << pos); }
+    inline void SetErase (int pos) { valid_bitmap &= ~(1LU << pos); }
+    inline bool isValid (int pos) { return (valid_bitmap & (1LU << pos)) != 0; }
 };
 
 };  // namespace spoton

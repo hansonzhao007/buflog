@@ -8,8 +8,6 @@
 
 namespace spoton {
 
-static bool EnableWriteBuffer = false;
-
 static constexpr size_t SPTREE_LOG_SIZE = 64LU << 30;  // 64GB for log
 static size_t SPTREE_LOCAL_LOG_SIZE{0};                // this is the log size for each thread
 static constexpr size_t SPTREE_PMEM_SIZE{((128LU << 30)) + SPTREE_LOG_SIZE};  // 128GB for data
@@ -52,10 +50,19 @@ public:
 
     inline int validCount (void) { return __builtin_popcountll (bits_); }
 
+    // ++a
     inline NodeBitSet& operator++ () {
         // remove the lowest 1-bit
         bits_ &= (bits_ - 1);
         return *this;
+    }
+
+    // a++
+    inline NodeBitSet operator++ (int) {
+        // remove the lowest 1-bit
+        auto tmp = *this;
+        bits_ &= (bits_ - 1);
+        return tmp;
     }
 
     inline explicit operator bool () const { return bits_ != 0; }
