@@ -47,7 +47,8 @@ void WAL::CreateLogsForThread (SPTreePmemRoot* root, size_t thread_num) {
         // initialize the meta
         WALMeta* log_meta = reinterpret_cast<WALMeta*> (tmp);
         log_meta->Reset (SPTREE_LOCAL_LOG_SIZE);
-        INFO ("Create log for thread %d. addr: 0x%lx, size: %lu", i, tmp, SPTREE_LOCAL_LOG_SIZE);
+        INFO ("Create log for thread %lu. addr: 0x%lx, size: %lu", i, (size_t)tmp,
+              SPTREE_LOCAL_LOG_SIZE);
     }
     root->log_count = thread_num;
 }
@@ -80,7 +81,7 @@ void WAL::Recover (SPTreePmemRoot* root) {
     this->log_tail_.store (log_meta->tail_);
     log_ptrs_[log_id_] = this;
     thread_local_log_ = this;
-    INFO ("Recover a WAL log. addr: 0x%lx, size: %lu, tail: %lu", tmp, this->log_size_,
+    INFO ("Recover a WAL log. addr: 0x%lx, size: %lu, tail: %lu", (size_t)tmp, this->log_size_,
           this->log_tail_.load ());
     assert (thread_local_log_);
 }

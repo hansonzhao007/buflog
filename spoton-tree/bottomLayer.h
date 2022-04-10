@@ -68,7 +68,10 @@ public:
     LeafNode64 ();
 
 public:
-    bool Insert (key_t key, val_t val);
+    // Insert the slot si without flushing and without setting the bitmap. Used in splitting.
+    bool InsertiWithoutSetValidBitmap (key_t key, val_t val, int si);
+
+    std::tuple<bool, int> Insert (key_t key, val_t val);
     bool Lookup (key_t key, val_t& val);
     bool Remove (key_t key);
 

@@ -136,7 +136,8 @@ TEST (BottomLayer, Basic) {
     LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
     for (size_t i = 0; i < 64; i++) {
-        ASSERT_TRUE (leafnode.Insert (i, i));
+        auto [res, si] = leafnode.Insert (i, i);
+        ASSERT_TRUE (res);
     }
 
     ASSERT_TRUE (leafnode.Full ());
@@ -147,7 +148,8 @@ TEST (BottomLayer, UnSort) {
     LeafNode64 leafnode;
 
     for (size_t i = 0; i < 64; i++) {
-        ASSERT_TRUE (leafnode.Insert (1000 - i, i));
+        auto [res, si] = leafnode.Insert (1000 - i, i);
+        ASSERT_TRUE (res);
     }
 
     ASSERT_TRUE (leafnode.Full ());
@@ -164,7 +166,8 @@ TEST (BottomLayer, Sort) {
     LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
     for (size_t i = 0; i < 64; i++) {
-        ASSERT_TRUE (leafnode.Insert (random (), i));
+        auto [res, si] = leafnode.Insert (random (), i);
+        ASSERT_TRUE (res);
     }
 
     ASSERT_TRUE (leafnode.Full ());
@@ -187,7 +190,8 @@ TEST (BottomLayer, Split) {
     dummy.SetPrev (&leafnode);
 
     for (size_t i = 0; i < 64; i++) {
-        ASSERT_TRUE (leafnode.Insert (i, i));
+        auto [res, si] = leafnode.Insert (i, i);
+        ASSERT_TRUE (res);
     }
 
     ASSERT_TRUE (leafnode.Full ());

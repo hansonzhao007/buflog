@@ -86,7 +86,7 @@ public:
         char buffer[1024];
         WALNode* next = next_;
         sprintf (buffer, "type: %02d, data size: %u - %s. ptr: 0x%lx, checksum: %lx", type_, size_,
-                 GetDataSlice ().c_str (), next, checksum_);
+                 GetDataSlice ().c_str (), (size_t)next, checksum_);
         return buffer;
     }
 };

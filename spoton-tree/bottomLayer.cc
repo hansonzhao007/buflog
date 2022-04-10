@@ -59,7 +59,21 @@ LeafNode64* LeafNode64::GetNext () {
     return next_pmem;
 }
 
-bool LeafNode64::Insert (key_t _key, val_t _val) {
+bool LeafNode64::InsertiWithoutSetValidBitmap (key_t _key, val_t _val, int si) {
+    if (isValid (si)) return false;
+    // obtain key hash
+    key_t key = _key;
+    val_t val = _val;
+    uint64_t hash = XXH3_64bits (&key, 8);
+    uint8_t tag = hash & 0xFF;
+    auto& slot = this->slots[si];
+    slot.key = key;
+    slot.val = val;
+    this->tags[si] = tag;
+    return true;
+}
+
+std::tuple<bool, int> LeafNode64::Insert (key_t _key, val_t _val) {
     // obtain key hash
     key_t key = _key;
     val_t val = _val;
@@ -71,7 +85,9 @@ bool LeafNode64::Insert (key_t _key, val_t _val) {
         if (record.key == key) {
             // update
             record.val = val;
-            return true;
+            SPTreeMemFlush (&this->slots[i]);
+            SPTreeMemFlushFence ();
+            return {true, i};
         }
     }
 
@@ -84,13 +100,16 @@ bool LeafNode64::Insert (key_t _key, val_t _val) {
             record.val = val;
             // 2. set tag
             this->tags[i] = tag;
+            SPTreeMemFlush (&this->slots[i]);
+            SPTreeMemFlush (&this->tags[i]);
+            SPTreeMemFlushFence ();
             // 3. validate bitmap
             SetValid (i);
-            return true;
+            return {true, i};
         }
     }
 
-    return false;
+    return {false, 0};
 }
 
 bool LeafNode64::Remove (key_t _key) {
@@ -182,16 +201,23 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
 
     // 2. create new LeafNode64 for right half keys and shift. [median, ..] -> newNode
     LeafNode64* newNode = new (newNodeAddr) LeafNode64 ();
-    for (int i = 0; i < count; i++) {
+    NodeBitSet rightEmptySet = newNode->EmptyBitSet ();
+    NodeBitSet rightValidSet;
+    NodeBitSet leftValidSet;
+    for (size_t i = 0; i < count; i++) {
         auto [key, val, si] = toSplitedKVs[i];
         if (key < median) {
             bloomfilterLeft.set (key);
         } else {
             this->SetErase (si);  // clear the shifted kv from left
-            newNode->Insert (key, val);
+            int right_si = *rightEmptySet;
+            rightValidSet.set (right_si);
+            newNode->InsertiWithoutSetValidBitmap (key, val, right_si);
+            ++rightEmptySet;
             bloomfilterRight.set (key);
         }
     }
+    NodeBitSet leftEmptySet = this->EmptyBitSet ();
 
     // 3. set newNode info
     newNode->lkey = median;
@@ -213,15 +239,28 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
     for (auto [key, val] : toMergedRecords) {
         if (key < median) {
             // to left half
-            this->Insert (key, val);
+            int left_si = *leftEmptySet;
+            leftValidSet.set (left_si);
+            this->InsertiWithoutSetValidBitmap (key, val, left_si);
+            ++leftEmptySet;
             bloomfilterLeft.set (key);
         } else {
             // to right half
-            newNode->Insert (key, val);
+            int right_si = *rightEmptySet;
+            rightValidSet.set (right_si);
+            newNode->InsertiWithoutSetValidBitmap (key, val, right_si);
+            ++rightEmptySet;
             bloomfilterRight.set (key);
         }
     }
-
+    SPTreeCLFlush ((char*)this, sizeof (LeafNode64));
+    SPTreeCLFlush ((char*)newNode, sizeof (LeafNode64));
+    // 7. batch set the valid_bitmap of left and right nodes
+    this->valid_bitmap |= leftValidSet.bit ();
+    newNode->valid_bitmap |= rightValidSet.bit ();
+    SPTreeMemFlush (&this->valid_bitmap);
+    SPTreeMemFlush (&newNode->valid_bitmap);
+    SPTreeMemFlushFence ();
     return {newNode, median};
 };
 
@@ -272,7 +311,7 @@ void BottomLayer::Initialize (SPTreePmemRoot* root) {
 void BottomLayer::Recover (SPTreePmemRoot* root) { head = root->bottomLayerLeafNode64_head; }
 
 bool BottomLayer::Insert (key_t key, val_t val, LeafNode64* bnode) {
-    return bnode->Insert (key, val);
+    return std::get<0> (bnode->Insert (key, val));
 }
 
 bool BottomLayer::Lookup (key_t key, val_t& val, LeafNode64* bnode) {
