@@ -73,25 +73,25 @@ public:
     std::vector<size_t> keys;
 };
 
-// TEST_F (SPTreeDramTest, Basic64) {
-//     size_t num = 64;
-//     Load (num);
+TEST_F (SPTreeDramTest, Basic64) {
+    size_t num = 64;
+    Load (num);
 
-//     for (size_t i = 1; i <= num; i++) {
-//         TID tid = tree_->lookup (i);
-//         ASSERT_EQ (tid, i);
-//     }
-// }
+    for (size_t i = 1; i <= num; i++) {
+        TID tid = tree_->lookup (i);
+        ASSERT_EQ (tid, i);
+    }
+}
 
-// TEST_F (SPTreeDramTest, Basic65) {
-//     size_t num = 65;
-//     Load (num);
+TEST_F (SPTreeDramTest, Basic65) {
+    size_t num = 65;
+    Load (num);
 
-//     for (size_t i = 1; i <= num; i++) {
-//         TID tid = tree_->lookup (i);
-//         ASSERT_EQ (tid, i);
-//     }
-// }
+    for (size_t i = 1; i <= num; i++) {
+        TID tid = tree_->lookup (i);
+        ASSERT_EQ (tid, i);
+    }
+}
 
 TEST_F (SPTreeDramTest, Basic) {
     size_t num = 100000;
@@ -111,7 +111,7 @@ TEST_F (SPTreeDramTest, RandomInsert) {
     for (size_t i = 0; i < num; i++) {
         TID tid = tree_->lookup (keys[i]);
         if (tid != keys[i]) {
-            printf ("not equal");
+            printf ("not equal\n");
             tid = tree_->lookup (keys[i]);
         }
     }

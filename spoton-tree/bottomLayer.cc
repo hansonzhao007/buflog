@@ -163,32 +163,33 @@ void LeafNode64::Sort () {
 
 std::tuple<LeafNode64*, key_t> LeafNode64::Split (
     std::vector<std::pair<key_t, val_t>>& toMergedRecords, void* newNodeAddr,
-    BloomFilterFix64& bleft, BloomFilterFix64& bright) {
+    BloomFilterFix64& bloomfilterLeft, BloomFilterFix64& bloomfilterRight) {
     // should lock both me and my next node
+    bloomfilterLeft.reset ();
+    bloomfilterRight.reset ();
 
-    LeafNodeSlot copied_slots[64];
-    // assert (Full ());
-
-    // copy to dram to sort
-    std::copy (std::begin (this->slots), std::end (this->slots), std::begin (copied_slots));
+    // 1. collect the valid kv and sort.
+    std::vector<std::tuple<key_t, val_t, int>> toSplitedKVs;
+    for (int i : ValidBitSet ()) {
+        toSplitedKVs.push_back ({this->slots[i].key, this->slots[i].val, i});
+    }
     // sort copied_slots by accending order
-    std::sort (std::begin (copied_slots), std::end (copied_slots),
-               [] (auto& a, auto& b) { return a.key < b.key; });
+    std::sort (std::begin (toSplitedKVs), std::end (toSplitedKVs),
+               [] (auto& a, auto& b) { return std::get<0> (a) < std::get<0> (b); });
+    size_t count = Count ();
+    assert (count == toSplitedKVs.size ());
+    key_t median = std::get<0> (toSplitedKVs[count / 2]);
 
-    key_t median = copied_slots[32].key;
-
-    // record the valid bitmap position, which need to be cleared later
-    NodeBitSet shiftedBitSet;
-
-    // 1. create new LeafNode64 for right half keys
+    // 2. create new LeafNode64 for right half keys and shift. [median, ..] -> newNode
     LeafNode64* newNode = new (newNodeAddr) LeafNode64 ();
-
-    // 2. copy the righ half to newNode. [median, ..] -> newNode
-    for (int i = 0; i < 64; i++) {
-        auto slot = this->slots[i];
-        if (slot.key >= median && isValid (i)) {
-            SetErase (i);
-            newNode->Insert (slot.key, slot.val);
+    for (int i = 0; i < count; i++) {
+        auto [key, val, si] = toSplitedKVs[i];
+        if (key < median) {
+            bloomfilterLeft.set (key);
+        } else {
+            this->SetErase (si);  // clear the shifted kv from left
+            newNode->Insert (key, val);
+            bloomfilterRight.set (key);
         }
     }
 
@@ -208,25 +209,17 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
     // 5. reset hkey and valid bitmap of me (remove right half from me)
     this->hkey = median;
 
-    // 6. merge the toMergedRecords and set bloomfilter
-    bleft.reset ();
-    bright.reset ();
+    // 6. merge the toMergedRecords
     for (auto [key, val] : toMergedRecords) {
         if (key < median) {
             // to left half
             this->Insert (key, val);
-            bleft.set (key);
+            bloomfilterLeft.set (key);
         } else {
             // to right half
             newNode->Insert (key, val);
-            bright.set (key);
+            bloomfilterRight.set (key);
         }
-    }
-    for (int i = 0; i < 32; i++) {
-        bleft.set (copied_slots[i].key);
-    }
-    for (int i = 32; i < 64; i++) {
-        bright.set (copied_slots[i].key);
     }
 
     return {newNode, median};

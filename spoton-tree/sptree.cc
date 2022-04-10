@@ -6,8 +6,6 @@
 #include "logger.h"
 #include "sptree_meta.h"
 
-constexpr bool EnableWriteBuffer = true;
-
 namespace spoton {
 
 void AsyncInsert (TopLayerPmem* pmem_tree, key_t key, void* ptr) { pmem_tree->insert (key, ptr); };

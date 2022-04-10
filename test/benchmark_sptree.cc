@@ -44,7 +44,8 @@ DEFINE_string (benchmarks, "load,readall", "");
 DEFINE_bool (dram, false, "use dram leafnode");
 DEFINE_bool (is_seq_trace, false, "trace is sequential or not");
 DEFINE_string (tracefile, "randomtrace.data", "");
-DEFINE_bool (log, false, "enable wal log or not");
+DEFINE_bool (writebuffer, false, "enable write buffer or not");
+DEFINE_bool (log, false, "enable wal log or not. only works with write buffer enable");
 
 using namespace util;
 
@@ -450,6 +451,7 @@ public:
 
             if (fresh_db) {
                 spoton::SPTree::DistroySPTree ();
+                spoton::EnableWriteBuffer = FLAGS_writebuffer;
                 tree_ = spoton::SPTree::CreateSPTree (FLAGS_dram, FLAGS_log);
                 if (!FLAGS_dram && FLAGS_log) {
                     // create wal for sptree's each thread
@@ -1023,6 +1025,8 @@ private:
         PrintEnvironment ();
         fprintf (stdout, "Type:                  SPTree\n");
         fprintf (stdout, "Dram mode:             %s\n", FLAGS_dram ? "true" : "false");
+        fprintf (stdout, "Enable Write Buffer:   %s\n",
+                 spoton::EnableWriteBuffer ? "true" : "false");
         fprintf (stdout, "Enable WAL:            %s\n", FLAGS_log ? "true" : "false");
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);
         fprintf (stdout, "Entries:               %lu\n", (uint64_t)num_);

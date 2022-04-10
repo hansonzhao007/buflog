@@ -98,7 +98,6 @@ public:
     }
     inline void Reset () {
         valid_bitmap = 0;
-        memset (tags, 0, 16);
         DEBUG ("buffer 0x%lx reset, count: %lu, valid: %lx", this, Count (), valid_bitmap);
     }
 };

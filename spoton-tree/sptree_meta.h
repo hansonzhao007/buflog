@@ -8,6 +8,8 @@
 
 namespace spoton {
 
+static bool EnableWriteBuffer = false;
+
 static constexpr size_t SPTREE_LOG_SIZE = 64LU << 30;  // 64GB for log
 static size_t SPTREE_LOCAL_LOG_SIZE{0};                // this is the log size for each thread
 static constexpr size_t SPTREE_PMEM_SIZE{((128LU << 30)) + SPTREE_LOG_SIZE};  // 128GB for data
