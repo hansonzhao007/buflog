@@ -197,8 +197,27 @@ public:
 
     bool crashed = true;
 
+    Directory* dir () {
+#ifdef CONFIG_DRAM_INNER
+        return dir_dram;
+#else
+        return D_RW (dir_pmem);
+#endif
+    }
+
+    void SetDir (Directory* d) {
+#ifdef CONFIG_DRAM_INNER
+        dir_dram = d;
+#else
+        dir_pmem = pmemobj_oid (d);
+#endif
+    }
+
 private:
-    TOID (struct Directory) dir;
+    union {
+        TOID (struct Directory) dir_pmem;
+        Directory* dir_dram;
+    };
 };
 
 #endif
