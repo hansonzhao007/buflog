@@ -121,7 +121,7 @@ logptr_t Log_t::Append (LogNodeType_t type, Slice record, logptr_t ptr) {
     log_node->SetData (type, record.data (), record_size, ptr);
 
     // flush the log node
-    SPOTON_CLFLUSH (cur_addr, total_size);
+    // SPOTON_CLFLUSH (cur_addr, total_size);
 
     return logptr_t{log_id_, cur_off};
 }
@@ -140,7 +140,7 @@ logptr_t Log_t::Append (LogNodeType_t type, size_t key, size_t val, logptr_t ptr
     log_node->SetData (type, key, val, ptr);
 
     // flush the log node (sync flushing each log record really compromises performance)
-    SPOTON_CLFLUSH (cur_addr, total_size);
+    // SPOTON_CLFLUSH (cur_addr, total_size);
 
     return logptr_t{log_id_, cur_off};
 }
