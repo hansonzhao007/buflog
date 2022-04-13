@@ -16,9 +16,16 @@ declare -a allThreads=(40)
 # numactl -N 0 sudo ../pactree/release/bench_pactree  --thread=$t --num=$NUM --benchmarks=load,readrandom,readnon,status --read=10000000 --stats_interval=200000000 | tee scalability_pactree_$t.data
 # done
 
+
 for t in ${allThreads[@]};
 do
 numactl -N 0 sudo ../release/bench_sptree           --thread=$t --num=$NUM --benchmarks=load,readrandom,readnon,status --read=10000000 --stats_interval=200000000 | tee scalability_sptree_$t.data
+done
+
+
+for t in ${allThreads[@]};
+do
+numactl -N 0 sudo ../release/bench_sptree           --thread=$t --num=$NUM --benchmarks=load,readrandom,readnon,status --read=10000000 --stats_interval=200000000 --writebuffer=true --log=true | tee scalability_sptree_bug_log_$t.data
 done
 
 

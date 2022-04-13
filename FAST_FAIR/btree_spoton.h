@@ -122,7 +122,8 @@ public:
 
     char* btree_search (entry_key_t);
     page* btree_search_internal (entry_key_t, int& pi);  // search key's leafnode
-    void btree_search_range (entry_key_t, entry_key_t, unsigned long*);
+    void btree_search_range (entry_key_t, entry_key_t, size_t& founded, size_t range,
+                             unsigned long*);
     void printAll (int level);
 
     friend class page;
@@ -1038,7 +1039,8 @@ public:
     }
 
     // Search keys with linear search
-    void linear_search_range (entry_key_t min, entry_key_t max, unsigned long* buf) {
+    void linear_search_range (entry_key_t min, entry_key_t max, size_t& founded, size_t range,
+                              unsigned long* buf) {
         int i, off = 0;
         uint8_t previous_switch_counter;
         page* current = this;
@@ -1059,7 +1061,8 @@ public:
                                 nullptr) {
                                 if (tmp_key == current->records[0].key) {
                                     if (tmp_ptr) {
-                                        buf[off++] = (unsigned long)tmp_ptr;
+                                        buf[founded++] = (unsigned long)tmp_ptr;
+                                        if (founded >= range) break;
                                     }
                                 }
                             }
@@ -1073,7 +1076,10 @@ public:
                                 if ((tmp_ptr = current->records[i].GetPtr (current->hdr.is_dram)) !=
                                     current->records[i - 1].GetPtr (current->hdr.is_dram)) {
                                     if (tmp_key == current->records[i].key) {
-                                        if (tmp_ptr) buf[off++] = (unsigned long)tmp_ptr;
+                                        if (tmp_ptr) {
+                                            buf[founded++] = (unsigned long)tmp_ptr;
+                                            if (founded >= range) break;
+                                        }
                                     }
                                 }
                             } else
@@ -1087,7 +1093,10 @@ public:
                                 if ((tmp_ptr = current->records[i].GetPtr (current->hdr.is_dram)) !=
                                     current->records[i - 1].GetPtr (current->hdr.is_dram)) {
                                     if (tmp_key == current->records[i].key) {
-                                        if (tmp_ptr) buf[off++] = (unsigned long)tmp_ptr;
+                                        if (tmp_ptr) {
+                                            buf[founded++] = (unsigned long)tmp_ptr;
+                                            if (founded >= range) break;
+                                        }
                                     }
                                 }
                             } else
@@ -1101,7 +1110,8 @@ public:
                                 nullptr) {
                                 if (tmp_key == current->records[0].key) {
                                     if (tmp_ptr) {
-                                        buf[off++] = (unsigned long)tmp_ptr;
+                                        buf[founded++] = (unsigned long)tmp_ptr;
+                                        if (founded >= range) break;
                                     }
                                 }
                             }
@@ -1690,7 +1700,8 @@ void btree::btree_insert_internal (char* left, entry_key_t key, char* right, uin
 }
 
 // Function to search keys from "min" to "max"
-void btree::btree_search_range (entry_key_t min, entry_key_t max, unsigned long* buf) {
+void btree::btree_search_range (entry_key_t min, entry_key_t max, size_t& founded, size_t range,
+                                unsigned long* buf) {
     page* p = root;
 
     int pi = -2;
@@ -1700,7 +1711,7 @@ void btree::btree_search_range (entry_key_t min, entry_key_t max, unsigned long*
             p = (page*)p->linear_search (min, pi);
         } else {
             // Found a leaf
-            p->linear_search_range (min, max, buf);
+            p->linear_search_range (min, max, founded, range, buf);
 
             break;
         }

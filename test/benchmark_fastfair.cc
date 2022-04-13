@@ -38,6 +38,7 @@ DEFINE_uint64 (report_interval, 0, "Report interval in seconds");
 DEFINE_uint64 (stats_interval, 20000000, "Report interval in ops");
 DEFINE_uint64 (value_size, 8, "The value size");
 DEFINE_uint64 (num, 5 * 1000000LU, "Number of total record");
+DEFINE_uint64 (scan_num, 50, "number of keys to scan");
 DEFINE_uint64 (read, 0 * 1000000, "Number of read operations");
 DEFINE_uint64 (write, 5 * 1000000, "Number of read operations");
 DEFINE_bool (hist, false, "");
@@ -424,6 +425,10 @@ public:
                 fresh_db = false;
                 key_trace_->Randomize ();
                 method = &Benchmark::DoOverWrite;
+            } else if (name == "scan") {
+                fresh_db = false;
+                key_trace_->Randomize ();
+                method = &Benchmark::DoScan;
             } else if (name == "readrandom") {
                 fresh_db = false;
                 key_trace_->Randomize ();
@@ -481,6 +486,34 @@ public:
             IPMWatcher watcher (name);
             if (method != nullptr) RunBenchmark (thread, name, method, print_hist);
         }
+    }
+
+    void DoScan (ThreadState* thread) {
+        uint64_t batch = FLAGS_batch;
+        if (key_trace_ == nullptr) {
+            perror ("DoScan lack key_trace_ initialization.");
+            return;
+        }
+        size_t start_offset = random () % trace_size_;
+        auto key_iterator = key_trace_->trace_at (start_offset, trace_size_);
+        size_t not_find = 0;
+
+        Duration duration (FLAGS_readtime, reads_);
+        thread->stats.Start ();
+        uint64_t readBuffer[1024];
+        while (!duration.Done (batch) && key_iterator.Valid ()) {
+            uint64_t j = 0;
+            for (; j < batch && key_iterator.Valid (); j++) {
+                size_t ikey = key_iterator.Next ();
+                uint64_t founded = 0;
+                uint64_t range = FLAGS_scan_num;
+                tree_->btree_search_range (ikey, UINT64_MAX, founded, range, readBuffer);
+            }
+            thread->stats.FinishedBatchOp (j);
+        }
+        char buf[100];
+        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", reads_, not_find);
+        thread->stats.AddMessage (buf);
     }
 
     void DoRead (ThreadState* thread) {
