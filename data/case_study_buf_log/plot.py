@@ -138,5 +138,5 @@ for t in ["1", "20", "40"]:
         ax.tick_params(axis='x', labelsize=26, rotation=45)
         i=i+1
 
-fig.savefig("case_study_buf.pdf",bbox_inches='tight', pad_inches=0.05)
+fig.savefig("case_study_buf_log.pdf",bbox_inches='tight', pad_inches=0.05)
 
