@@ -496,23 +496,29 @@ public:
         }
         size_t start_offset = random () % trace_size_;
         auto key_iterator = key_trace_->trace_at (start_offset, trace_size_);
-        size_t not_find = 0;
 
         Duration duration (FLAGS_readtime, reads_);
-        thread->stats.Start ();
         uint64_t readBuffer[1024];
+        uint64_t scanless = 0;
+        thread->stats.Start ();
         while (!duration.Done (batch) && key_iterator.Valid ()) {
             uint64_t j = 0;
             for (; j < batch && key_iterator.Valid (); j++) {
                 size_t ikey = key_iterator.Next ();
                 uint64_t founded = 0;
                 uint64_t range = FLAGS_scan_num;
-                tree_->btree_search_range (ikey, UINT64_MAX, founded, range, readBuffer);
+                tree_->btree_search_range (ikey, INT64_MAX, founded, range, readBuffer);
+                if (founded != range) {
+                    scanless++;
+                }
             }
             thread->stats.FinishedBatchOp (j);
         }
         char buf[100];
-        snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", reads_, not_find);
+        snprintf (buf, sizeof (buf), "(num: %lu, scanless: %lu)", reads_, scanless);
+        if (scanless != 0) {
+            INFO ("(num: %lu, scanless: %lu)\n", reads_, scanless);
+        }
         thread->stats.AddMessage (buf);
     }
 

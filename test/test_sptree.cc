@@ -142,6 +142,25 @@ TEST_F (SPTreeDramTest, RandomInsertAndRemove) {
     }
 }
 
+TEST_F (SPTreeDramTest, Scan) {
+    DEBUG ("RandomInsert");
+    size_t num = 1000;
+    Load (num);
+
+    std::vector<uint64_t> vals;
+    vals.resize (100);
+
+    size_t found = 0;
+    found = tree_->scan (1, 50, vals);
+    for (int i = 0; i < 50; i++) {
+        ASSERT_EQ (i + 1, vals[i]);
+    }
+    ASSERT_EQ (found, 50);
+
+    found = tree_->scan (961, 50, vals);
+    ASSERT_EQ (found, 40);
+}
+
 int main (int argc, char** argv) {
     ::testing::InitGoogleTest (&argc, argv);
     return RUN_ALL_TESTS ();

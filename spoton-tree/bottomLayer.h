@@ -46,7 +46,6 @@ class LeafNode64 {
 public:
     key_t lkey{0};
     key_t hkey{0};
-    RetryVersionLock lock;
     union {
         LeafNode64* prev_dram;
         pptr<LeafNode64> prev_pmem;
@@ -56,12 +55,13 @@ public:
         LeafNode64* next_dram;
         pptr<LeafNode64> next_pmem;
     };
-
     uint64_t valid_bitmap{0};  // 8B
+    size_t cur_version{0};
+
     uint8_t tags[64];
     LeafNodeSlot slots[64];
     uint8_t seqs[64];
-
+    size_t sort_version{0};
     static constexpr size_t kLeafNodeCapacity = 64;
 
 public:
@@ -80,6 +80,44 @@ public:
 
     struct SortByKey;
     void Sort ();
+
+    bool NeedSort () { return cur_version != sort_version; }
+
+    // return the sequence for the first key >= searchKey
+    int SeekGE (key_t searchKey);
+
+    class Iterator {
+        LeafNode64* node{nullptr};
+        int i{0};
+        int iend{0};
+
+    public:
+        Iterator () = default;
+        Iterator (LeafNode64* n, int _i) : node (n), i (_i), iend (node->Count ()) {}
+
+        inline bool Valid () { return i < iend; }
+        LeafNodeSlot& operator* () const { return node->slots[node->seqs[i]]; }
+        LeafNodeSlot* operator-> () const { return &node->slots[node->seqs[i]]; }
+
+        // ++a
+        inline Iterator& operator++ () {
+            i++;
+            return *this;
+        }
+
+        inline bool operator!= (const Iterator& iter) { return this->i != iter.i; }
+
+        Iterator begin () { return Iterator (node, 0); }
+
+        Iterator end () { return Iterator (node, iend); }
+    };
+
+    Iterator begin () { return Iterator (this, 0); }
+
+    Iterator beginAt (key_t searchKey) {
+        int si = SeekGE (searchKey);
+        return Iterator (this, si);
+    }
 
     // spilt the this node
     // return a new node and its lkey
@@ -103,6 +141,8 @@ public:
     inline void SetErase (int pos) { valid_bitmap &= ~(1LU << pos); }
     inline bool isValid (int pos) { return (valid_bitmap & (1LU << pos)) != 0; }
 };
+
+constexpr size_t kLeafNodeSize = sizeof (LeafNode64);
 
 };  // namespace spoton
 

@@ -46,6 +46,7 @@ private:
     void Recover (SPTreePmemRoot*);
     void SplitMNodeAndUnlock (MLNode* mnode,
                               const std::vector<std::pair<key_t, val_t>>& toMergedRecords);
+    void SortLeafNode (MLNode* mnode, uint64_t& version, bool& needRestart);
 
 public:
     ~SPTree ();

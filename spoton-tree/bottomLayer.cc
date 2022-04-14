@@ -110,6 +110,7 @@ std::tuple<bool, int> LeafNode64::Insert (key_t _key, val_t _val, bool withFLush
             record.val = val;
             // 2. set tag
             this->tags[i] = tag;
+            cur_version++;
             if (withFLush) {
                 SPTreeMemFlush (&this->slots[i]);
                 SPTreeMemFlush (&this->tags[i]);
@@ -135,6 +136,7 @@ bool LeafNode64::Remove (key_t _key) {
         if (record.key == key) {
             // find key
             SetErase (i);
+            cur_version++;
             SPTreeMemFlush ((char*)&this->valid_bitmap);
             SPTreeMemFlushFence ();
             return true;
@@ -143,25 +145,36 @@ bool LeafNode64::Remove (key_t _key) {
     return false;
 }
 
+int LeafNode64::SeekGE (key_t searchKey) {
+    if (NeedSort ()) {
+        ERROR ("Seek a unsorted leaf");
+        perror ("Seek a unsorted leaf\n");
+        exit (1);
+    }
+
+    // binary search
+    int l = 0, r = Count ();
+    while (l < r) {
+        int m = l + (r - l) / 2;
+        if (slots[seqs[m]].key < searchKey) {
+            l = m + 1;
+        } else {
+            r = m;
+        }
+    }
+    return l;
+}
+
 bool LeafNode64::Lookup (key_t _key, val_t& val) {
     // obtain key hash
     key_t key = _key;
     uint64_t hash = XXH3_64bits (&key, 8);
     uint8_t tag = hash & 0xFF;
 
-retry:
-    bool needRestart = false;
     for (int i : MatchBitSet (tag)) {
-        // retry if current node is under writing
-        auto v = lock.readLockOrRestart (needRestart);
-        if (needRestart) goto retry;
-
         auto& record = this->slots[i];
         if (record.key == key) {
             val = record.val;
-            // check version after read
-            lock.checkOrRestart (v, needRestart);
-            if (needRestart) goto retry;
             return true;
         }
     }
@@ -192,6 +205,8 @@ void LeafNode64::Sort () {
     for (int i : valid_pos) {
         this->seqs[si++] = i;
     }
+
+    sort_version = cur_version;
 }
 
 std::tuple<LeafNode64*, key_t> LeafNode64::Split (
@@ -283,6 +298,7 @@ std::tuple<LeafNode64*, key_t> LeafNode64::Split (
             bloomfilterRight.set (key);
         }
     }
+    cur_version++;
     SPTreeCLFlush ((char*)this, sizeof (LeafNode64));
     SPTreeCLFlush ((char*)newNode, sizeof (LeafNode64));
     // 7. batch set the valid_bitmap of left and right nodes

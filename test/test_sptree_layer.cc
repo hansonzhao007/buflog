@@ -165,20 +165,42 @@ TEST (BottomLayer, UnSort) {
 TEST (BottomLayer, Sort) {
     LeafNode64::kIsLeafNodeDram = true;
     LeafNode64 leafnode;
-    for (size_t i = 0; i < 64; i++) {
-        auto [res, si] = leafnode.Insert (random (), i, false);
+    for (size_t i = 64; i > 0; i--) {
+        auto [res, si] = leafnode.Insert (i, i, false);
         ASSERT_TRUE (res);
     }
 
     ASSERT_TRUE (leafnode.Full ());
 
     leafnode.Sort ();
+    for (int i = 1; i <= 64; i++) {
+        int si = leafnode.SeekGE (i);
+        ASSERT_EQ (si, i - 1);
+    }
 
     size_t prev = 0;
     for (int i = 0; i < 64; i++) {
         auto& slot = leafnode.slots[leafnode.seqs[i]];
         ASSERT_TRUE (prev < slot.key);
         prev = slot.key;
+    }
+
+    {
+        auto iter = leafnode.begin ();
+        int i = 1;
+        while (iter.Valid ()) {
+            ASSERT_EQ (iter->val, i++);
+            ++iter;
+        }
+    }
+
+    {
+        auto iter = leafnode.begin ();
+        int i = 1;
+        for (auto& slot : iter) {
+            // printf ("i: %d, val: %lu\n", i, slot.val);
+            ASSERT_EQ (slot.val, i++);
+        }
     }
 };
 

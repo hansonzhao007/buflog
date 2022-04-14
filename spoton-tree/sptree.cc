@@ -260,6 +260,95 @@ retry_lock_next:
     old_next_mnode->lock.writeUnlock ();
 }
 
+void SPTree::SortLeafNode (MLNode* mnode, uint64_t& version, bool& needRestart) {
+    if (mnode->leafNode->NeedSort ()) {
+        mnode->lock.upgradeToWriteLockOrRestart (version, needRestart);
+        if (needRestart) {
+            // version has changed
+            return;
+        }
+        if (mnode->leafNode->NeedSort ()) {
+            // if no other thread has finished sorting
+            mnode->leafNode->Sort ();
+        }
+        mnode->lock.writeUnlock ();
+        // update the version
+        version = mnode->lock.readLockOrRestart (needRestart);
+        if (needRestart) {
+            return;
+        }
+    }
+}
+
+uint64_t SPTree::scan (key_t startKey, int resultSize, std::vector<TID>& results) {
+retry:
+    // 1. find the target middle layer node, and its version snapshot
+    bool needRestart = false;
+    MLNode* mnode;
+    uint64_t v;
+    std::tie (mnode, v) = jumpToMiddleLayer (startKey);
+    mnode->lock.checkOrRestart (v, needRestart);
+    if (needRestart) {
+        // version has changed
+        goto retry;
+    }
+
+    MLNode* cur_mnode = mnode;
+    int curOff = 0;
+
+retry_scan:
+    int cur_read = 0;
+    needRestart = false;
+    v = cur_mnode->lock.readLockOrRestart (needRestart);
+    if (needRestart) {
+        goto retry_scan;
+    }
+    while (cur_mnode->lkey != cur_mnode->hkey && curOff + cur_read < resultSize) {
+        // sort the leaf node if needed
+        SortLeafNode (cur_mnode, v, needRestart);
+        if (needRestart) {
+            // retry scan this node
+            DEBUG ("retry scan0");
+            goto retry_scan;
+        }
+        // iterate sorted keys
+        LeafNode64::Iterator iter;
+        if (cur_mnode->lkey >= startKey) {
+            iter = cur_mnode->leafNode->begin ();
+        } else {
+            iter = cur_mnode->leafNode->beginAt (startKey);
+        }
+
+        while (curOff + cur_read < resultSize) {
+            if (iter.Valid ()) {
+                if (startKey <= iter->key) {
+                    results[curOff + cur_read++] = iter->val;
+                }
+                ++iter;
+            } else {
+                // go to next leaf node
+                cur_mnode->lock.checkOrRestart (v, needRestart);
+                if (needRestart) {
+                    // retry scan this node
+                    DEBUG ("retry scan1");
+                    goto retry_scan;
+                }
+                cur_mnode = cur_mnode->next;
+                curOff = curOff + cur_read;
+                cur_read = 0;
+                break;
+            }
+        }
+        v = cur_mnode->lock.readLockOrRestart (needRestart);
+        if (needRestart) {
+            // retry scan this node
+            DEBUG ("retry scan2");
+            goto retry_scan;
+        }
+    }
+    return curOff + cur_read;
+}
+
 TID SPTree::lookup (key_t key) {
 retry:
     // 1. find the target middle layer node, and its version snapshot

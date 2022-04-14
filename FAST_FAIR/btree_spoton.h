@@ -1062,7 +1062,7 @@ public:
                                 if (tmp_key == current->records[0].key) {
                                     if (tmp_ptr) {
                                         buf[founded++] = (unsigned long)tmp_ptr;
-                                        if (founded >= range) break;
+                                        if (founded >= range) return;
                                     }
                                 }
                             }
@@ -1078,7 +1078,7 @@ public:
                                     if (tmp_key == current->records[i].key) {
                                         if (tmp_ptr) {
                                             buf[founded++] = (unsigned long)tmp_ptr;
-                                            if (founded >= range) break;
+                                            if (founded >= range) return;
                                         }
                                     }
                                 }
@@ -1095,7 +1095,7 @@ public:
                                     if (tmp_key == current->records[i].key) {
                                         if (tmp_ptr) {
                                             buf[founded++] = (unsigned long)tmp_ptr;
-                                            if (founded >= range) break;
+                                            if (founded >= range) return;
                                         }
                                     }
                                 }
@@ -1111,7 +1111,7 @@ public:
                                 if (tmp_key == current->records[0].key) {
                                     if (tmp_ptr) {
                                         buf[founded++] = (unsigned long)tmp_ptr;
-                                        if (founded >= range) break;
+                                        if (founded >= range) return;
                                     }
                                 }
                             }

@@ -37,6 +37,7 @@ DEFINE_uint64 (report_interval, 0, "Report interval in seconds");
 DEFINE_uint64 (stats_interval, 20000000, "Report interval in ops");
 DEFINE_uint64 (value_size, 8, "The value size");
 DEFINE_uint64 (num, 5 * 1000000LU, "Number of total record");
+DEFINE_uint64 (scan_num, 50, "number of keys to scan");
 DEFINE_uint64 (read, 0 * 1000000, "Number of read operations");
 DEFINE_uint64 (write, 5 * 1000000, "Number of read operations");
 DEFINE_bool (hist, false, "");
@@ -398,6 +399,10 @@ public:
                 fresh_db = false;
                 key_trace_->Randomize ();
                 method = &Benchmark::DoOverWrite;
+            } else if (name == "scan") {
+                fresh_db = false;
+                key_trace_->Randomize ();
+                method = &Benchmark::DoScan;
             } else if (name == "readrandom") {
                 fresh_db = false;
                 key_trace_->Randomize ();
@@ -469,6 +474,37 @@ public:
                 if (method != nullptr) RunBenchmark (thread, name, method, print_hist);
             }
         }
+    }
+
+    void DoScan (ThreadState* thread) {
+        uint64_t batch = FLAGS_batch;
+        if (key_trace_ == nullptr) {
+            perror ("DoScan lack key_trace_ initialization.");
+            return;
+        }
+        size_t start_offset = random () % trace_size_;
+        auto key_iterator = key_trace_->trace_at (start_offset, trace_size_);
+        size_t scanless = 0;
+
+        Duration duration (FLAGS_readtime, reads_);
+        std::vector<uint64_t> readBuffer (FLAGS_scan_num * 2);
+        thread->stats.Start ();
+        while (!duration.Done (batch) && key_iterator.Valid ()) {
+            uint64_t j = 0;
+            for (; j < batch && key_iterator.Valid (); j++) {
+                size_t ikey = key_iterator.Next ();
+                uint64_t founded = 0;
+                founded = tree_->scan (ikey, FLAGS_scan_num, readBuffer);
+                if (founded != FLAGS_scan_num) {
+                    scanless++;
+                }
+            }
+            thread->stats.FinishedBatchOp (j);
+        }
+        char buf[100];
+        snprintf (buf, sizeof (buf), "(num: %lu, scan less: %lu)", reads_, scanless);
+        if (scanless) INFO ("thread %2d num: %lu, scan less %lu\n", thread->tid, reads_, scanless);
+        thread->stats.AddMessage (buf);
     }
 
     void DoRead (ThreadState* thread) {
