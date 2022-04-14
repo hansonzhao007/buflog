@@ -18,7 +18,7 @@
 namespace spoton {
 
 class SPTree {
-public:
+private:
     TopLayer mTopLayer;          // dram top layer
     MiddleLayer mMidLayer;       // dram middle layer
     BottomLayer mBotLayer;       // pmem bottom layer
@@ -37,16 +37,7 @@ public:
     // recover sptree from pmem
     static SPTree* RecoverSPTree (bool withWriteBuffer, bool withLog);
 
-    void WaitAllJobs ();
-
-private:
-    // You should not call the constructor directly, use CreateSPTree instead
-    SPTree (bool isDram, bool withWriteBuffer, bool withLog);
-    void Initialize (SPTreePmemRoot*);
-    void Recover (SPTreePmemRoot*);
-    void SplitMNodeAndUnlock (MLNode* mnode,
-                              const std::vector<std::pair<key_t, val_t>>& toMergedRecords);
-    void SortLeafNode (MLNode* mnode, uint64_t& version, bool& needRestart);
+    SPTreePmemRoot* GetPmemRoot () { return mSPTreePmemRoot; }
 
 public:
     ~SPTree ();
@@ -56,13 +47,27 @@ public:
     TID lookup (key_t key);
     uint64_t scan (key_t startKey, int resultSize, std::vector<TID>& result);
 
-    std::string ToString ();
-
+    // print memory usage info
     std::string ToStats ();
 
+    // print all slots, for debug
+    std::string ToString ();
+
 private:
+    // You should not call the constructor directly, use CreateSPTree instead
+    SPTree (bool isDram, bool withWriteBuffer, bool withLog);
+    void Initialize (SPTreePmemRoot*);
+    void Recover (SPTreePmemRoot*);
+
+    void FlushMLNodeBuffer (MLNode* mnode, key_t key, val_t val);
+    void SplitMLNodeAndUnlock (MLNode* mnode,
+                               const std::vector<std::pair<key_t, val_t>>& toMergedRecords);
+    void SortLeafNode (MLNode* mnode, uint64_t& version, bool& needRestart);
+
     // locate the target middle layer node and its version, without lock
     std::tuple<MLNode*, uint64_t> jumpToMiddleLayer (key_t key);
+
+    void WaitAllJobs ();
 };
 
 };  // namespace spoton

@@ -462,7 +462,7 @@ public:
                 tree_ = spoton::SPTree::CreateSPTree (FLAGS_dram, FLAGS_writebuffer, FLAGS_log);
                 if (!FLAGS_dram && FLAGS_log) {
                     // create wal for sptree's each thread
-                    spoton::WAL::CreateLogsForThread (tree_->mSPTreePmemRoot, FLAGS_thread);
+                    spoton::WAL::CreateLogsForThread (tree_->GetPmemRoot (), FLAGS_thread);
                 }
             }
 

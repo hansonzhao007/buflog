@@ -211,8 +211,43 @@ retry2:
     return {mnode, v};
 }
 
-void SPTree::SplitMNodeAndUnlock (MLNode* mnode,
-                                  const std::vector<std::pair<key_t, val_t>>& toMergedRecords) {
+void SPTree::FlushMLNodeBuffer (MLNode* mnode, key_t key, val_t val) {
+    // insert all records in the write buffer
+    auto* buffer = mnode->getNodeBuffer ();
+    NodeBitSet emptyBitSet = mnode->leafNode->EmptyBitSet ();
+    NodeBitSet toAddedBits;
+    for (int i : buffer->ValidBitSet ()) {
+        auto slot = buffer->slots[i];
+        int si = *emptyBitSet;
+        bool res = mnode->leafNode->InsertiWithoutSetValidBitmap (slot.key, slot.val, si);
+        if (res) {
+            // new insert to leafnode. key is inserted in slot[si]
+            toAddedBits.set (si);
+            emptyBitSet++;
+        } else {
+            // means we overwrite an existing key and we do not go to next
+            // emptyBitSet
+            DEBUG ("overwrite key %lu when flush buffer", slot.key);
+        }
+    }
+    // insert this record
+    int si = *emptyBitSet;
+    bool res = mnode->leafNode->InsertiWithoutSetValidBitmap (key, val, si);
+    if (res) {
+        // new insert to leafnode
+        toAddedBits.set (si);
+    }
+
+    SPTreeCLFlush ((char*)mnode->leafNode, sizeof (LeafNode64));
+    mnode->leafNode->valid_bitmap |= toAddedBits.bit ();
+    // batch update the bitmap
+    SPTreeMemFlush (&mnode->leafNode->valid_bitmap);
+    SPTreeMemFlushFence ();
+    mMidLayer.SetBloomFilter (key, mnode);
+}
+
+void SPTree::SplitMLNodeAndUnlock (MLNode* mnode,
+                                   const std::vector<std::pair<key_t, val_t>>& toMergedRecords) {
     // assert mnode has already been locked
 retry_lock_next:
     bool needRestart = false;
@@ -309,13 +344,16 @@ retry_scan:
         if (needRestart) {
             // retry scan this node
             DEBUG ("retry scan0");
+            _mm_pause ();
             goto retry_scan;
         }
         // iterate sorted keys
         LeafNode64::Iterator iter;
         if (cur_mnode->lkey >= startKey) {
+            // scan from the 1st key
             iter = cur_mnode->leafNode->begin ();
         } else {
+            // binary search to target key
             iter = cur_mnode->leafNode->beginAt (startKey);
         }
 
@@ -331,6 +369,7 @@ retry_scan:
                 if (needRestart) {
                     // retry scan this node
                     DEBUG ("retry scan1");
+                    _mm_pause ();
                     goto retry_scan;
                 }
                 cur_mnode = cur_mnode->next;
@@ -343,6 +382,7 @@ retry_scan:
         if (needRestart) {
             // retry scan this node
             DEBUG ("retry scan2");
+            _mm_pause ();
             goto retry_scan;
         }
     }
@@ -437,38 +477,7 @@ retry:
             // 3.a we can merge all the records in buffer
             if (count1 + count2 <= LeafNode64::kLeafNodeCapacity - 1) {
                 // insert all records in the write buffer
-                auto* buffer = mnode->getNodeBuffer ();
-                NodeBitSet emptyBitSet = mnode->leafNode->EmptyBitSet ();
-                NodeBitSet toAddedBits;
-                for (int i : buffer->ValidBitSet ()) {
-                    auto slot = buffer->slots[i];
-                    int si = *emptyBitSet;
-                    bool res =
-                        mnode->leafNode->InsertiWithoutSetValidBitmap (slot.key, slot.val, si);
-                    if (res) {
-                        // new insert to leafnode. key is inserted in slot[si]
-                        toAddedBits.set (si);
-                        emptyBitSet++;
-                    } else {
-                        // means we overwrite an existing key and we do not go to next
-                        // emptyBitSet
-                        DEBUG ("overwrite key %lu when flush buffer", slot.key);
-                    }
-                }
-                // insert this record
-                int si = *emptyBitSet;
-                bool res = mnode->leafNode->InsertiWithoutSetValidBitmap (key, val, si);
-                if (res) {
-                    // new insert to leafnode
-                    toAddedBits.set (si);
-                }
-
-                SPTreeCLFlush ((char*)mnode->leafNode, sizeof (LeafNode64));
-                mnode->leafNode->valid_bitmap |= toAddedBits.bit ();
-                // batch update the bitmap
-                SPTreeMemFlush (&mnode->leafNode->valid_bitmap);
-                SPTreeMemFlushFence ();
-                mMidLayer.SetBloomFilter (key, mnode);
+                FlushMLNodeBuffer (mnode, key, val);
 
                 // clear write buffer
                 mnode->resetBuffer ();
@@ -484,7 +493,7 @@ retry:
                 toMerge.push_back ({slot.key, slot.val});
             }
             toMerge.push_back ({key, val});
-            SplitMNodeAndUnlock (mnode, toMerge);
+            SplitMLNodeAndUnlock (mnode, toMerge);
 
             // clear write buffer after split
             mnode->resetBuffer ();
@@ -496,7 +505,7 @@ retry:
     bool bottomInsertSucc = mBotLayer.Insert (key, val, mnode->leafNode);
     if (!bottomInsertSucc) {
         // fail to insert, split
-        SplitMNodeAndUnlock (mnode, {{key, val}});
+        SplitMLNodeAndUnlock (mnode, {{key, val}});
         return true;
     }
 
