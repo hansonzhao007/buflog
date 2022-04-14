@@ -202,6 +202,11 @@ TEST (BottomLayer, Sort) {
             ASSERT_EQ (slot.val, i++);
         }
     }
+
+    {
+        auto iter = leafnode.beginAt (65);
+        ASSERT_FALSE (iter.Valid ());
+    }
 };
 
 TEST (BottomLayer, Split) {

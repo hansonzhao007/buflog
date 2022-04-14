@@ -13,9 +13,6 @@ namespace spoton {
 
 class BloomFilterFix64;
 
-using key_t = size_t;
-using val_t = size_t;
-
 struct LeafNodeSlot {
     key_t key;
     val_t val;
@@ -56,7 +53,7 @@ public:
         pptr<LeafNode64> next_pmem;
     };
     uint64_t valid_bitmap{0};  // 8B
-    size_t cur_version{0};
+    size_t cur_version{1};
 
     uint8_t tags[64];
     LeafNodeSlot slots[64];

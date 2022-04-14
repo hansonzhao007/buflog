@@ -10,12 +10,10 @@
 #include "bottomLayer.h"
 #include "logger.h"
 #include "retryLock.h"
+#include "sptree_meta.h"
 #include "wal.h"
 #include "xxhash.h"
 namespace spoton {
-
-using key_t = size_t;
-using val_t = size_t;
 
 enum MLNodeType : char { MLNodeTypeNoBuffer = 0, MLNodeTypeWithBuffer, MLNodeTypeEnd };
 

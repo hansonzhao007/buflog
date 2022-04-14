@@ -485,7 +485,7 @@ public:
         size_t start_offset = random () % trace_size_;
         auto key_iterator = key_trace_->trace_at (start_offset, trace_size_);
         size_t scanless = 0;
-
+        size_t noequal = 0;
         Duration duration (FLAGS_readtime, reads_);
         std::vector<uint64_t> readBuffer (FLAGS_scan_num * 2);
         thread->stats.Start ();
@@ -498,12 +498,18 @@ public:
                 if (founded != FLAGS_scan_num) {
                     scanless++;
                 }
+                if (ikey != readBuffer[0]) {
+                    noequal++;
+                }
             }
             thread->stats.FinishedBatchOp (j);
         }
         char buf[100];
-        snprintf (buf, sizeof (buf), "(num: %lu, scan less: %lu)", reads_, scanless);
-        if (scanless) INFO ("thread %2d num: %lu, scan less %lu\n", thread->tid, reads_, scanless);
+        snprintf (buf, sizeof (buf), "(num: %lu, scan less: %lu, no equal: %lu)", reads_, scanless,
+                  noequal);
+        if (scanless or noequal)
+            INFO ("thread %2d num: %lu, scan less %lu, no equal: %lu\n", thread->tid, reads_,
+                  scanless, noequal);
         thread->stats.AddMessage (buf);
     }
 

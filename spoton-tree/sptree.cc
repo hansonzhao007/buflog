@@ -231,11 +231,13 @@ void SPTree::FlushMLNodeBuffer (MLNode* mnode, key_t key, val_t val) {
         }
     }
     // insert this record
-    int si = *emptyBitSet;
-    bool res = mnode->leafNode->InsertiWithoutSetValidBitmap (key, val, si);
-    if (res) {
-        // new insert to leafnode
-        toAddedBits.set (si);
+    if (key != kKeyEmpty) {
+        int si = *emptyBitSet;
+        bool res = mnode->leafNode->InsertiWithoutSetValidBitmap (key, val, si);
+        if (res) {
+            // new insert to leafnode
+            toAddedBits.set (si);
+        }
     }
 
     SPTreeCLFlush ((char*)mnode->leafNode, sizeof (LeafNode64));
@@ -295,6 +297,36 @@ retry_lock_next:
     old_next_mnode->lock.writeUnlock ();
 }
 
+void SPTree::FlushOrSplitAndUnlock (MLNode* mnode, key_t key, val_t val) {
+    size_t count1 = mnode->recordCount ();      // record # in buffer
+    size_t count2 = mnode->leafNode->Count ();  // record # in leafnode
+
+    // 1. we can merge all the records in buffer
+    if (count1 + count2 <= LeafNode64::kLeafNodeCapacity - 1) {
+        // insert all records in the write buffer
+        FlushMLNodeBuffer (mnode, key, val);
+        // clear write buffer
+        mnode->resetBuffer ();
+        mnode->lock.writeUnlock ();
+        return;
+    }
+
+    // 2. leafnode cannot hold all the records
+    NodeBuffer* buffer = mnode->getNodeBuffer ();
+    std::vector<std::pair<key_t, val_t>> toMerge;
+    for (int i : buffer->ValidBitSet ()) {
+        auto slot = buffer->slots[i];
+        toMerge.push_back ({slot.key, slot.val});
+    }
+    if (key != kKeyEmpty) {
+        toMerge.push_back ({key, val});
+    }
+    SplitMLNodeAndUnlock (mnode, toMerge);
+
+    // 3. clear write buffer after split
+    mnode->resetBuffer ();
+}
+
 void SPTree::SortLeafNode (MLNode* mnode, uint64_t& version, bool& needRestart) {
     if (mnode->leafNode->NeedSort ()) {
         mnode->lock.upgradeToWriteLockOrRestart (version, needRestart);
@@ -322,11 +354,6 @@ retry:
     MLNode* mnode;
     uint64_t v;
     std::tie (mnode, v) = jumpToMiddleLayer (startKey);
-    mnode->lock.checkOrRestart (v, needRestart);
-    if (needRestart) {
-        // version has changed
-        goto retry;
-    }
 
     MLNode* cur_mnode = mnode;
     int curOff = 0;
@@ -339,11 +366,22 @@ retry_scan:
         goto retry_scan;
     }
     while (cur_mnode->lkey != cur_mnode->hkey && curOff + cur_read < resultSize) {
+        // if node has buffer, flush it
+        if (cur_mnode->type == MLNodeTypeWithBuffer) {
+            if (cur_mnode->recordCount () != 0) {
+                cur_mnode->lock.upgradeToWriteLockOrRestart (v, needRestart);
+                if (needRestart) {
+                    goto retry;
+                }
+                FlushOrSplitAndUnlock (cur_mnode, kKeyEmpty, 0);
+                goto retry;
+            }
+        }
         // sort the leaf node if needed
         SortLeafNode (cur_mnode, v, needRestart);
         if (needRestart) {
             // retry scan this node
-            DEBUG ("retry scan0");
+            DEBUG ("retry scan1");
             _mm_pause ();
             goto retry_scan;
         }
@@ -368,7 +406,7 @@ retry_scan:
                 cur_mnode->lock.checkOrRestart (v, needRestart);
                 if (needRestart) {
                     // retry scan this node
-                    DEBUG ("retry scan1");
+                    DEBUG ("retry scan2");
                     _mm_pause ();
                     goto retry_scan;
                 }
@@ -381,7 +419,7 @@ retry_scan:
         v = cur_mnode->lock.readLockOrRestart (needRestart);
         if (needRestart) {
             // retry scan this node
-            DEBUG ("retry scan2");
+            DEBUG ("retry scan3");
             _mm_pause ();
             goto retry_scan;
         }
@@ -469,36 +507,10 @@ retry:
             }
             mnode->lock.writeUnlock ();
             return true;
-        } else {
-            // write buffer full, merge to pmem node
-            size_t count1 = mnode->recordCount ();      // record # in buffer
-            size_t count2 = mnode->leafNode->Count ();  // record # in leafnode
-
-            // 3.a we can merge all the records in buffer
-            if (count1 + count2 <= LeafNode64::kLeafNodeCapacity - 1) {
-                // insert all records in the write buffer
-                FlushMLNodeBuffer (mnode, key, val);
-
-                // clear write buffer
-                mnode->resetBuffer ();
-                mnode->lock.writeUnlock ();
-                return true;
-            }
-
-            // 3.b leafnode cannot hold all the records
-            NodeBuffer* buffer = mnode->getNodeBuffer ();
-            std::vector<std::pair<key_t, val_t>> toMerge;
-            for (int i : buffer->ValidBitSet ()) {
-                auto slot = buffer->slots[i];
-                toMerge.push_back ({slot.key, slot.val});
-            }
-            toMerge.push_back ({key, val});
-            SplitMLNodeAndUnlock (mnode, toMerge);
-
-            // clear write buffer after split
-            mnode->resetBuffer ();
-            return true;
         }
+        // write buffer full, merge to pmem node
+        FlushOrSplitAndUnlock (mnode, key, val);
+        return true;
     }
 
     // 4. insert to bottom layer

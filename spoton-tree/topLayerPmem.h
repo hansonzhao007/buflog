@@ -6,8 +6,6 @@
 #include "sptree_meta.h"
 namespace spoton {
 
-using key_t = size_t;
-using val_t = size_t;
 using RecoverCallbackFn = std::function<void (key_t key, void* ptr)>;
 class btree;
 
