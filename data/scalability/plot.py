@@ -91,6 +91,7 @@ def PlotScalability():
     Plot("scalability_load.parse", "scalability_load.pdf", -8, "Write Throughput", "Throughput (Mops/s)")
     Plot("scalability_read.parse", "scalability_read.pdf", -10, "Positive Read Throughput", "Throughput (Mops/s)")
     Plot("scalability_readnon.parse", "scalability_readnon.pdf", -10, "Negative Read Throughput", "Throughput (Mops/s)")
+    Plot("scalability_scan.parse", "scalability_scan.pdf", -10, "Scan Throughput", "Throughput (Mops/s)")
     
     # Plot IO
     Plot("scalability_load_io.parse", "scalability_load_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
@@ -99,15 +100,18 @@ def PlotScalability():
 
     Plot("scalability_read_io.parse", "scalability_read_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
     Plot("scalability_readnon_io.parse", "scalability_readnon_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
-    
+    Plot("scalability_scan_io.parse", "scalability_scan_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    Plot("scalability_scan_io_r.parse", "scalability_scan_io_r.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    Plot("scalability_scan_io_w.parse", "scalability_scan_io_w.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
 
     # Plot bw
     Plot("scalability_load_bw.parse", "scalability_load_bw.pdf", -4, "", "Pmem Bandwidth (GB/s)", 1024.0)
     Plot("scalability_read_bw.parse", "scalability_read_bw.pdf", -4, "", "Pmem Bandwidth (GB/s)", 1024.0)
     Plot("scalability_readnon_bw.parse", "scalability_readnon_bw.pdf", -4, "", "Pmem Bandwidth (GB/s)", 1024.0)
+    Plot("scalability_scan_bw.parse", "scalability_scan_bw.pdf", -4, "", "Pmem Bandwidth (GB/s)", 1024.0)
 
 # combine read and write
-for name in ["load_io", "read_io", "readnon_io", "load_bw", "read_bw", "readnon_bw"]:
+for name in ["load_io", "read_io", "readnon_io", "scan_io", "load_bw", "read_bw", "readnon_bw", "scan_bw"]:
     df0 = pd.read_csv("scalability_" + name + "_r.parse")
     df0 = df0.set_index('thread')
     df1 = pd.read_csv("scalability_" + name + "_w.parse")
