@@ -36,12 +36,12 @@ DEFINE_uint32 (thread, 1, "");
 DEFINE_uint64 (report_interval, 0, "Report interval in seconds");
 DEFINE_uint64 (stats_interval, 20000000, "Report interval in ops");
 DEFINE_uint64 (value_size, 8, "The value size");
-DEFINE_uint64 (num, 5 * 1000000LU, "Number of total record");
+DEFINE_uint64 (num, 8 * 1000000LU, "Number of total record");
 DEFINE_uint64 (scan_num, 50, "number of keys to scan");
-DEFINE_uint64 (read, 0 * 1000000, "Number of read operations");
+DEFINE_uint64 (read, 1 * 1000000, "Number of read operations");
 DEFINE_uint64 (write, 5 * 1000000, "Number of read operations");
 DEFINE_bool (hist, false, "");
-DEFINE_string (benchmarks, "load,readall", "");
+DEFINE_string (benchmarks, "load,readall,readnon,delete,readall,overwrite,readall", "");
 DEFINE_bool (dram, false, "use dram leafnode");
 DEFINE_bool (is_seq_trace, false, "trace is sequential or not");
 DEFINE_string (tracefile, "randomtrace.data", "");
@@ -936,7 +936,7 @@ public:
                     }
                 } else {
                     tree_->lookup (key);
-                    tree_->lookup (key);
+                    tree_->insert (key, key);
                     insert++;
                 }
             }

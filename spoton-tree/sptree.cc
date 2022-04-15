@@ -560,7 +560,10 @@ retry:
     // 3. try to remove from write buffer
     if (mnode->type == MLNodeTypeWithBuffer) {
         bool removeMNodeSucc = mnode->remove (key);
-        bool removeLeafNodeSucc = mBotLayer.Remove (key, mnode->leafNode);
+        bool removeLeafNodeSucc = false;
+        if (maybeExist) {
+            removeLeafNodeSucc = mBotLayer.Remove (key, mnode->leafNode);
+        }
         if (removeMNodeSucc) {
             if (mEnableLog) {
                 WAL* local_log = WAL::GetThreadLocalLog (mSPTreePmemRoot);
@@ -581,7 +584,8 @@ retry:
     }
 
     // 4. try to remove from bottom layer
-    bool res = mBotLayer.Remove (key, mnode->leafNode);
+    bool res = false;
+    if (maybeExist) res = mBotLayer.Remove (key, mnode->leafNode);
     mnode->lock.writeUnlock ();
     return res;
 }

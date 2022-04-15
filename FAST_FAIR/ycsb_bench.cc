@@ -376,6 +376,10 @@ public:
             if (name == "load") {
                 fresh_db = true;
                 method = &Benchmark::DoWrite;
+            } else if (name == "delete") {
+                fresh_db = false;
+                key_trace_->Randomize ();
+                method = &Benchmark::DoDelete;
             } else if (name == "loadlat") {
                 fresh_db = true;
                 print_hist = true;
@@ -588,6 +592,32 @@ public:
         char buf[100];
         snprintf (buf, sizeof (buf), "(num: %lu, not find: %lu)", reads_, not_find);
         thread->stats.AddMessage (buf);
+    }
+
+    void DoDelete (ThreadState* thread) {
+        uint64_t batch = FLAGS_batch;
+        if (key_trace_ == nullptr) {
+            perror ("DoDelete lack key_trace_ initialization.");
+            return;
+        }
+        size_t interval = num_ / FLAGS_thread;
+        size_t start_offset = thread->tid * interval;
+        auto key_iterator = key_trace_->iterate_between (start_offset, start_offset + interval);
+
+        thread->stats.Start ();
+        size_t deleted = 0;
+        while (key_iterator.Valid ()) {
+            uint64_t j = 0;
+            for (; j < batch && key_iterator.Valid (); j++) {
+                size_t ikey = key_iterator.Next ();
+                tree_->btree_delete (ikey);
+            }
+            thread->stats.FinishedBatchOp (j);
+        }
+        char buf[100];
+        snprintf (buf, sizeof (buf), "(num: %lu, deleted: %lu)", interval, deleted);
+        thread->stats.AddMessage (buf);
+        return;
     }
 
     void DoWrite (ThreadState* thread) {
@@ -816,7 +846,7 @@ public:
                     }
                 } else {
                     tree_->btree_search (key);
-                    tree_->btree_search (key);
+                    tree_->btree_insert (key, (char*)key);
                     insert++;
                 }
             }

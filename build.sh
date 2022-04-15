@@ -12,6 +12,11 @@ mv bench_cceh ../release
 mv bench_cceh_spoton_di ../release
 
 cd ..
+cd FAST_FAIR
+make -j
+mv bench_fastfair_original ../release
+
+cd ..
 # build pactree
 cd pactree
 mkdir release

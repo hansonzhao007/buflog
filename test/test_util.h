@@ -26,7 +26,7 @@
 
 auto rng = std::default_random_engine{};
 
-static constexpr uint64_t kRandNumMax = (1LU << 60);
+static constexpr uint64_t kRandNumMax = (1LU << 48);
 static constexpr uint64_t kRandNumMaxMask = kRandNumMax - 1;
 
 static uint64_t u64Rand (const uint64_t& min, const uint64_t& max) {

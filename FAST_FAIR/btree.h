@@ -1055,9 +1055,10 @@ void btree::btree_delete (entry_key_t key) {
         if (!D_RW (p)->remove (this, key)) {
             btree_delete (key);
         }
-    } else {
-        printf ("not found the key to delete %lu\n", key);
     }
+    // else {
+    //     printf ("not found the key to delete %lu\n", key);
+    // }
 }
 
 void btree::btree_delete_internal (entry_key_t key, char* ptr, uint32_t level,

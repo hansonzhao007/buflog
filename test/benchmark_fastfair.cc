@@ -892,7 +892,7 @@ public:
                     }
                 } else {
                     tree_->btree_search (key);
-                    tree_->btree_search (key);
+                    tree_->btree_insert (key, (char*)key);
                     insert++;
                 }
             }

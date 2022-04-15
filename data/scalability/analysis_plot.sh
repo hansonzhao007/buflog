@@ -8,10 +8,10 @@ outfile_load="scalability_load.parse"
 outfile_read="scalability_read.parse"
 outfile_readnon="scalability_readnon.parse"
 outfile_scan="scalability_scan.parse"
-echo "thread,fastfair,pactree,sptree" >> $outfile_load
-echo "thread,fastfair,pactree,sptree" >> $outfile_read
-echo "thread,fastfair,pactree,sptree" >> $outfile_readnon
-echo "thread,fastfair,pactree,sptree" >> $outfile_scan
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_load
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_read
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_readnon
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_scan
 
 outfile_load_io_r="scalability_load_io_r.parse"
 outfile_load_io_w="scalability_load_io_w.parse"
@@ -21,14 +21,14 @@ outfile_readnon_io_r="scalability_readnon_io_r.parse"
 outfile_readnon_io_w="scalability_readnon_io_w.parse"
 outfile_scan_io_r="scalability_scan_io_r.parse"
 outfile_scan_io_w="scalability_scan_io_w.parse"
-echo "thread,fastfair,pactree,sptree" >> $outfile_load_io_r
-echo "thread,fastfair,pactree,sptree" >> $outfile_load_io_w
-echo "thread,fastfair,pactree,sptree" >> $outfile_read_io_r
-echo "thread,fastfair,pactree,sptree" >> $outfile_read_io_w
-echo "thread,fastfair,pactree,sptree" >> $outfile_readnon_io_r
-echo "thread,fastfair,pactree,sptree" >> $outfile_readnon_io_w
-echo "thread,fastfair,pactree,sptree" >> $outfile_scan_io_r
-echo "thread,fastfair,pactree,sptree" >> $outfile_scan_io_w
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_load_io_r
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_load_io_w
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_read_io_r
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_read_io_w
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_readnon_io_r
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_readnon_io_w
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_scan_io_r
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_scan_io_w
 outfile_load_bw_r="scalability_load_bw_r.parse"
 outfile_load_bw_w="scalability_load_bw_w.parse"
 outfile_read_bw_r="scalability_read_bw_r.parse"
@@ -37,14 +37,14 @@ outfile_readnon_bw_r="scalability_readnon_bw_r.parse"
 outfile_readnon_bw_w="scalability_readnon_bw_w.parse"
 outfile_scan_bw_r="scalability_scan_bw_r.parse"
 outfile_scan_bw_w="scalability_scan_bw_w.parse"
-echo "thread,fastfair,pactree,sptree" >> $outfile_load_bw_r
-echo "thread,fastfair,pactree,sptree" >> $outfile_load_bw_w
-echo "thread,fastfair,pactree,sptree" >> $outfile_read_bw_r
-echo "thread,fastfair,pactree,sptree" >> $outfile_read_bw_w
-echo "thread,fastfair,pactree,sptree" >> $outfile_readnon_bw_r
-echo "thread,fastfair,pactree,sptree" >> $outfile_readnon_bw_w
-echo "thread,fastfair,pactree,sptree" >> $outfile_scan_bw_r
-echo "thread,fastfair,pactree,sptree" >> $outfile_scan_bw_w
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_load_bw_r
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_load_bw_w
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_read_bw_r
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_read_bw_w
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_readnon_bw_r
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_readnon_bw_w
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_scan_bw_r
+echo "thread,fastfair,pactree,sptree,sptree-B" >> $outfile_scan_bw_w
 
 for t in 1 2 4 8 16 20 24 28 32 36 40
 do
@@ -53,7 +53,7 @@ do
     oneline_read="$t"
     oneline_readnon="$t"
     oneline_scan="$t"
-    for i in fastfair pactree sptree
+    for i in fastfair pactree sptree sptree_buf_log
     do
         datafile="scalability_${i}_${t}.data"
 
@@ -84,7 +84,7 @@ do
     oneline_read="$t"
     oneline_readnon="$t"
     oneline_scan="$t"
-    for i in fastfair pactree sptree
+    for i in fastfair pactree sptree sptree_buf_log
     do
         datafile="scalability_${i}_${t}.data"
         
@@ -115,7 +115,7 @@ do
     oneline_read="$t"
     oneline_readnon="$t"
     oneline_scan="$t"
-    for i in fastfair pactree sptree
+    for i in fastfair pactree sptree sptree_buf_log
     do
         datafile="scalability_${i}_${t}.data"
         
@@ -146,7 +146,7 @@ do
     oneline_read="$t"
     oneline_readnon="$t"
     oneline_scan="$t"
-    for i in fastfair pactree sptree
+    for i in fastfair pactree sptree sptree_buf_log
     do
         datafile="scalability_${i}_${t}.data"
         
@@ -177,7 +177,7 @@ do
     oneline_read="$t"
     oneline_readnon="$t"
     oneline_scan="$t"
-    for i in fastfair pactree sptree
+    for i in fastfair pactree sptree sptree_buf_log
     do
         datafile="scalability_${i}_${t}.data"
         

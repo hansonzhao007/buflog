@@ -10,7 +10,7 @@ output = benchmark
 all: benchmark benchmark2
 
 benchmark: ycsb_bench.cc btree.h
-	$(CXX) $(CFLAGS) $(INCLUDES) -o bench_fastfair ycsb_bench.cc -lpmemobj -ltbb -lpmem -lpthread -lgflags -DPMEM
+	$(CXX) $(CFLAGS) $(INCLUDES) -o bench_fastfair_original ycsb_bench.cc -lpmemobj -ltbb -lpmem -lpthread -lgflags -DPMEM
 
 
 benchmark2: ycsb_bench.cc btree_dram.h

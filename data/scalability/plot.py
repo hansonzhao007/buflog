@@ -10,36 +10,30 @@ from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
 # import matplotlib as mpl
 plt.rcParams['axes.linewidth'] = 2
 
-hashtables = ['fastfair', 'pactree', 'sptree']
+hashtables = ['fastfair', 'pactree', 'sptree', 'sptree-B']
 legend_name = hashtables
 
 markers= {
-    'fastfair'  : 'o',     
+    'fastfair'  : '^',     
     'pactree'   : '|',
-    'sptree'    : '^',
-    'turbo30'   : '.',
-    'cceh30'    : 'x', 
-    'clevel30'  : 'd', 
-    'clht30'    : ''
+    'sptree'    : 'o',
+    'sptree-B'  : '*',
     }
 
 dashes= {
     'fastfair'  : [2, 0],
     'pactree'   : [2, 0],
     'sptree'    : [2, 0],
-    'turbo30'   : [3, 2],
-    'cceh30'    : [3, 2],
-    'clevel30'  : [3, 2],
-    'clht30'    : [3, 2]
+    'sptree-B'  : [2, 0],
     }
 
 colors= {
-    'fastfair'  : '#f7cd6b',     
+    'fastfair'  : '#F39C25',     
     'pactree'   : '#83C047',
-    'sptree'    : '#9B0522',
-    'turbo30'   : '#F37F82',
+    'sptree'    : '#BB0632',
+    'sptree-B'  : '#4182BD',
     'cceh30'    : '#7e72b5', 
-    'clevel30'  : '#3182BD', 
+    'clevel30'  : '#F37F82', 
     'clht30'    : '#808084'
     }
     
@@ -58,11 +52,11 @@ def Plot(filename, outfile, padding, title, ylabel, divide=1):
             fontsize=14,
             marker=markers[i],
             dashes=dashes[i],
-            markersize=8,
+            markersize=10.5,
             fillstyle='none',
             color=colors[i])
     
-    ax.legend(legend_name, fontsize=9, edgecolor='k',facecolor='w', framealpha=0, mode="expand", ncol=3, bbox_to_anchor=(-0.01, 0.9, 1.03, 0.1))
+    ax.legend(legend_name, fontsize=11, edgecolor='k',facecolor='w', framealpha=0, mode="expand", ncol=2, bbox_to_anchor=(-0.02, 0.79, 1.04, 0.1))
     # ax.legend(legend_name, fontsize=9, fancybox=True, framealpha=0.5, edgecolor='k')
 
     # set y ticks
@@ -95,14 +89,13 @@ def PlotScalability():
     
     # Plot IO
     Plot("scalability_load_io.parse", "scalability_load_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
-    Plot("scalability_load_io_r.parse", "scalability_load_io_r.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
-    Plot("scalability_load_io_w.parse", "scalability_load_io_w.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
-
     Plot("scalability_read_io.parse", "scalability_read_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
     Plot("scalability_readnon_io.parse", "scalability_readnon_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
     Plot("scalability_scan_io.parse", "scalability_scan_io.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
-    Plot("scalability_scan_io_r.parse", "scalability_scan_io_r.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
-    Plot("scalability_scan_io_w.parse", "scalability_scan_io_w.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    # Plot("scalability_load_io_r.parse", "scalability_load_io_r.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    # Plot("scalability_load_io_w.parse", "scalability_load_io_w.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    # Plot("scalability_scan_io_r.parse", "scalability_scan_io_r.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
+    # Plot("scalability_scan_io_w.parse", "scalability_scan_io_w.pdf", -4, "", "Pmem I/O (GB)", 1024.0)
 
     # Plot bw
     Plot("scalability_load_bw.parse", "scalability_load_bw.pdf", -4, "", "Pmem Bandwidth (GB/s)", 1024.0)
