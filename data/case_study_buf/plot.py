@@ -27,10 +27,7 @@ colors= {
     'cceh'        : '#F37F82',     
     'fastfair'    : '#3182BD',
     'skiplist'    : '#f7cd6b',
-    'turbo30' : '#F37F82',
-    'cceh30'  : '#7e72b5', 
-    'clevel30': '#3182BD', 
-    'clht30'  : '#808084'}
+    }
 
 
 fig = plt.figure(figsize=(16, 10)) 
@@ -52,6 +49,8 @@ def xtickformat(x, pos):
         return '%1.0fus' % (x/1000)
 formatter= FuncFormatter(xtickformat)
 
+df_io = pd.DataFrame(columns = ['NoBuffer', 'WithBuffer'])
+
 i=0
 for t in ["1", "20", "40"]:
     for index in indexes:
@@ -63,6 +62,9 @@ for t in ["1", "20", "40"]:
         df["io_w"] =  df["io_w"]/1024.0
         print(df)
         df.plot.bar(ax=ax, y=["io_r", "io_w"])
+
+        if t == "1":
+            df_io.loc[len(df_io.index)] = [df.iloc[0]["io_w"], df.iloc[1]["io_w"]]
 
         # plot io bars
         bars = ax.patches
@@ -138,5 +140,32 @@ for t in ["1", "20", "40"]:
         ax.tick_params(axis='x', labelsize=26, rotation=45)
         i=i+1
 
+
+
+
 fig.savefig("case_study_buf.pdf",bbox_inches='tight', pad_inches=0.05)
 
+print(df_io)
+fig, ax = plt.subplots()
+df_io.plot.bar(ax=ax)
+bars = ax.patches
+patterns =('', '\\\\', '\\\\', '//', '..', 'xx', ' ')
+patterns_color = list(["#F37F82", "#83C047"])
+hatches_color = [p for p in patterns_color for i in range(len(df))]
+hatches = [p for p in patterns for i in range(len(df))]
+bi=0
+for bar, hatch, color in zip(bars, hatches, hatches_color):
+    bar.set_color(color)
+    bar.set_edgecolor('k')
+    bar.set_hatch(hatch)
+    bi=bi+1
+ax.get_legend().remove()
+ax.legend(["NoBuffer", "WithBuffer",], fontsize=18, loc="upper right")            
+ax.set_xticklabels(["cceh", "fastfair","skiplist"])
+ax.tick_params(axis='x', labelsize=26, rotation=0)
+ax.set_title("Total Write on PMEM", fontsize=26)
+ax.text(0.05, 0.92, " GB",
+            horizontalalignment='center',
+            verticalalignment='center',
+            transform = ax.transAxes, fontsize=20)
+fig.savefig("case_io.pdf",bbox_inches='tight', pad_inches=0.05)

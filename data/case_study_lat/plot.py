@@ -49,6 +49,8 @@ def xtickformat(x, pos):
 formatter= FuncFormatter(xtickformat)
 
 
+colorNoCaching="#FF7F7F"
+colorCaching="#5E88C2"
 ai=0
 for name in indexes:
 
@@ -59,9 +61,9 @@ for name in indexes:
     print(filename)
     df = pd.read_csv(filename, header=None)
     df.columns=["latency", "freq"]
-    df.plot(x="latency", y="freq", ax=ax, alpha=0.5, color="#5E88C2")
+    df.plot(x="latency", y="freq", ax=ax, alpha=0.5, color=colorNoCaching)
     ax.set_xlim([0, maxlat[name + "_load"]])
-    ax.fill_between(df.latency, df['freq'], 0, alpha=0.5, color="#5E88C2")
+    ax.fill_between(df.latency, df['freq'], 0, alpha=0.5, color=colorNoCaching)
     ax.xaxis.set_major_formatter(formatter)
     ax.set_yticklabels([])
     ax.legend()
@@ -76,9 +78,9 @@ for name in indexes:
     print(filename)
     df = pd.read_csv(filename, header=None)
     df.columns=["latency", "freq"]
-    df.plot(x="latency", y="freq", ax=ax, alpha=0.5, color="#5E88C2")
+    df.plot(x="latency", y="freq", ax=ax, alpha=0.5, color=colorNoCaching)
     ax.set_xlim([0, maxlat[name+ "_read"]])
-    ax.fill_between(df.latency, df['freq'], 0, alpha=0.5, color="#5E88C2")
+    ax.fill_between(df.latency, df['freq'], 0, alpha=0.5, color=colorNoCaching)
     ax.xaxis.set_major_formatter(formatter)
     ax.set_yticklabels([])
     ax.legend()
@@ -95,9 +97,9 @@ for name in indexes:
     print(filename)
     df = pd.read_csv(filename, header=None)
     df.columns=["latency", "freq"]
-    df.plot(x="latency", y="freq", ax=ax, alpha=0.5, color='r')
+    df.plot(x="latency", y="freq", ax=ax, alpha=0.5, color=colorCaching)
     ax.set_xlim([0, maxlat[name+ "_load"]])
-    ax.fill_between(df.latency, df['freq'], 0, alpha=0.5, color='r')
+    ax.fill_between(df.latency, df['freq'], 0, alpha=0.5, color=colorCaching)
     ax.set_yticklabels([])
     ax.legend([])
 
@@ -106,9 +108,9 @@ for name in indexes:
     print(filename)
     df = pd.read_csv(filename, header=None)
     df.columns=["latency", "freq"]
-    df.plot(x="latency", y="freq", ax=ax, alpha=0.5, color='r')
+    df.plot(x="latency", y="freq", ax=ax, alpha=0.5, color=colorCaching)
     ax.set_xlim([0, maxlat[name + "_read"]])
-    ax.fill_between(df.latency, df['freq'], 0, alpha=0.5, color='r')
+    ax.fill_between(df.latency, df['freq'], 0, alpha=0.5, color=colorCaching)
     ax.set_yticklabels([])
     ax.legend([])
     ax.set_xlabel("")

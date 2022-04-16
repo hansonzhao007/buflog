@@ -1,0 +1,67 @@
+../release/bench_cceh_spoton_buf --thread=1 --num=120960000 --benchmarks=load,readrandom --read=2000000 
+Directory capacity: 16384. depth 14
+key trace size: 120960000
+generate 120960000 keys
+generate duration 0.141655 s.
+------------------------------------------------
+HashType:              CCEH spoton
+Spoton:                true
+Buffer:                true
+DramInner:             false
+Out-Place-Merge:       false
+Init Capacity:         16777216
+Entries:               120960000
+Trace size:            120960000
+Read:                  2000000 
+Write:                 1000000 
+Thread:                1 
+Report interval:       0 s
+Stats interval:        200000000 records
+benchmarks:            load,readrandom
+------------------------------------------------
+[32mStart IPMWatcher for load
+[0mDouble dir
+Directory capacity: 32768. depth 15
+Double dir
+Directory capacity: 65536. depth 16
+Double dir
+Directory capacity: 131072. depth 17
+Double dir
+Directory capacity: 262144. depth 18
+load         :       0.818 micros/op 1.165527 Mops/s;
+--------------------------------------------------------------------------------------
+DIMM  | Read from IMC | Write from IMC |   Read DIMM |   Write DIMM |     RA |     WA |
+  0   |       5010.19 |        2346.41 |    11481.77 |      2771.24 |   2.29 |   1.18 |
+  1   |       5010.22 |        2346.27 |    11495.70 |      2777.45 |   2.29 |   1.18 |
+  2   |       5010.25 |        2346.26 |    11469.15 |      2767.29 |   2.29 |   1.18 |
+  3   |       2944.66 |        2330.24 |     3576.79 |      2757.38 |   1.21 |   1.18 |
+  4   |       2942.84 |        2330.68 |     3562.40 |      2755.77 |   1.21 |   1.18 |
+  5   |       2939.14 |        2330.26 |     3540.41 |      2748.89 |   1.20 |   1.18 |
+--------------------------------------------------------------------------------------
+ SUM:
+ DIMM-R:   452.7 MB/s, 45126.2 MB
+ User-R:   239.3 MB/s, 23857.3 MB
+ DIMM-W:   166.3 MB/s, 16578.0 MB
+ User-W:   140.7 MB/s, 14030.1 MB
+   Time:    99.7 s
+[32mDestroy IPMWatcher.
+[0m
+[32mStart IPMWatcher for readrandom
+[0mreadrandom   :       0.344 micros/op 2.773200 Mops/s; (num: 2000000, not find: 0)
+--------------------------------------------------------------------------------------
+DIMM  | Read from IMC | Write from IMC |   Read DIMM |   Write DIMM |     RA |     WA |
+  0   |         19.20 |           0.01 |       56.96 |         0.82 |   2.97 |  55.22 |
+  1   |         18.92 |           0.02 |       56.21 |         0.82 |   2.97 |  53.24 |
+  2   |         18.93 |           0.01 |       56.23 |         0.81 |   2.97 |  54.98 |
+  3   |         18.85 |           0.01 |       55.98 |         0.82 |   2.97 |  55.72 |
+  4   |         18.80 |           0.01 |       55.68 |         0.81 |   2.96 |  54.94 |
+  5   |         18.91 |           0.01 |       55.84 |         0.81 |   2.95 |  55.11 |
+--------------------------------------------------------------------------------------
+ SUM:
+ DIMM-R:   238.6 MB/s,   336.9 MB
+ User-R:    80.5 MB/s,   113.6 MB
+ DIMM-W:     3.5 MB/s,     4.9 MB
+ User-W:     0.1 MB/s,     0.1 MB
+   Time:     1.4 s
+[32mDestroy IPMWatcher.
+[0m

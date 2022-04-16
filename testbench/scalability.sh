@@ -27,7 +27,7 @@ done
 
 for t in ${allThreads[@]};
 do
-numactl -N 0 sudo ../release/bench_sptree           --thread=$t --num=$NUM --benchmarks=$BENCHMARKS --read=$READS --stats_interval=$INTERVALS --writebuffer=true --log=true | tee scalability_sptree_bug_log_$t.data
+numactl -N 0 sudo ../release/bench_sptree           --thread=$t --num=$NUM --benchmarks=$BENCHMARKS --read=$READS --stats_interval=$INTERVALS --writebuffer=true --log=true | tee scalability_sptree_buf_log_$t.data
 done
 
 

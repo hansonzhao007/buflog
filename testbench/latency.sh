@@ -1,0 +1,33 @@
+#!/bin/bash
+
+NUM=120960000
+
+# declare -a allThreads=(40 36 32 28 24 20 16 12 8 4 2 1)
+READS=4000000
+BENCHMARKS=loadlat,readlat,readnonlat,status
+INTERVALS=200000000
+declare -a allThreads=(20)
+
+for t in ${allThreads[@]};
+do
+numactl -N 0 sudo ../release/bench_fastfair         --thread=$t --num=$NUM --benchmarks=$BENCHMARKS --read=$READS --stats_interval=$INTERVALS | tee latency_fastfair_$t.data
+done
+
+for t in ${allThreads[@]};
+do
+numactl -N 0 sudo ../pactree/release/bench_pactree  --thread=$t --num=$NUM --benchmarks=$BENCHMARKS --read=$READS --stats_interval=$INTERVALS | tee latency_pactree_$t.data
+done
+
+
+for t in ${allThreads[@]};
+do
+numactl -N 0 sudo ../release/bench_sptree           --thread=$t --num=$NUM --benchmarks=$BENCHMARKS --read=$READS --stats_interval=$INTERVALS | tee latency_sptree_$t.data
+done
+
+
+for t in ${allThreads[@]};
+do
+numactl -N 0 sudo ../release/bench_sptree           --thread=$t --num=$NUM --benchmarks=$BENCHMARKS --read=$READS --stats_interval=$INTERVALS --writebuffer=true --log=true | tee latency_sptree_buf_log_$t.data
+done
+
+
