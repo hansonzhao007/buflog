@@ -30,11 +30,18 @@ maxlat= {
     "readnon": 6000   
 }
 
-titles= {
+ytitles= {
     "fastfair"      : "Fast&Fair",
     "pactree"       : "Pactree",
     "sptree"        : "SPTree",
     "sptree_buf_log": "SPTree-B"
+}
+
+
+titles= {
+    "load"      : "Insert",
+    "read"      : "Positive Read",
+    "readnon"   : "Negative Read",
 }
 
 fig = plt.figure(figsize=(16, 8)) 
@@ -56,9 +63,14 @@ formatter= FuncFormatter(xtickformat)
 colorNoCaching="#FF7F7F"
 colorCaching="#5E88C2"
 
+
 ai=0
 for index in indexes:
-    for workloadtype in ["Load", "Read", "Readnon"]:
+    df_lat_median = pd.read_csv("lat_median_" + index + ".parse", header=None)
+    df_lat_median.columns= ['load', 'read', 'readnon']
+    print(df_lat_median)
+
+    for workloadtype in ["load", "read", "readnon"]:
         ax=axs[ai]
         filename = workloadtype.lower() + "_latency_" + index.lower() + ".parse"
         print(filename)
@@ -74,11 +86,17 @@ for index in indexes:
         ax.grid(axis = 'x', linewidth=1, linestyle='--')
         ax.set_axisbelow(True)
         ax.set_xlabel("")
-        # ax.set_ylim([1, 100000000])
+
+        median_str = "%.2f" % (df_lat_median.iloc[0][workloadtype]/1000.0)
+        ax.text(0.8, 0.76, "Median:\n" + median_str + "us",
+            horizontalalignment='center',
+            verticalalignment='center',
+            transform = ax.transAxes, fontsize=20)
+
         if ai % 3 == 0:
-            ax.set_ylabel(titles[index], fontsize=24)
+            ax.set_ylabel(ytitles[index], fontsize=24)
         if (ai < 3):
-            ax.set_title(workloadtype, fontsize=28)
+            ax.set_title(titles[workloadtype], fontsize=28)
         if (ai < 9):
             ax.set_xticklabels([])
         ai=ai+1

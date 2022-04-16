@@ -40,8 +40,18 @@ do
                 echo $tmp >> $outfile
              fi
         done < "tmp.log"
-    done
-         
+    done         
+done
+
+for index in fastfair pactree sptree sptree_buf_log
+do
+    filename=latency_${index}_20.data
+
+    # Median
+    raw=`grep -rnIiw "Median:" $filename | awk '{print $4}'`
+    arr=(${raw//:/ })
+    # load,read,readnon
+    echo ${arr[0]},${arr[1]},${arr[2]} > lat_median_${index}.parse
 done
 
 # python3 plot.py
