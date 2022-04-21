@@ -147,7 +147,7 @@ fig.savefig("case_study_buf.pdf",bbox_inches='tight', pad_inches=0.05)
 
 print(df_io)
 fig, ax = plt.subplots()
-df_io.plot.bar(ax=ax)
+df_io.plot.bar(ax=ax, alpha=0.6)
 bars = ax.patches
 patterns =('', '\\\\', '\\\\', '//', '..', 'xx', ' ')
 patterns_color = list(["#F37F82", "#83C047"])

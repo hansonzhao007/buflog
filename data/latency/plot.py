@@ -63,7 +63,6 @@ formatter= FuncFormatter(xtickformat)
 colorNoCaching="#FF7F7F"
 colorCaching="#5E88C2"
 
-
 ai=0
 for index in indexes:
     df_lat_median = pd.read_csv("lat_median_" + index + ".parse", header=None)
@@ -100,7 +99,6 @@ for index in indexes:
         if (ai < 9):
             ax.set_xticklabels([])
         ai=ai+1
-
 
 fig.savefig("latency_compare.pdf",bbox_inches='tight', pad_inches=0.05)
 

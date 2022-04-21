@@ -348,6 +348,7 @@ void SPTree::SortLeafNode (MLNode* mnode, uint64_t& version, bool& needRestart) 
 }
 
 uint64_t SPTree::scan (key_t startKey, int resultSize, std::vector<TID>& results) {
+    assert (results.size () >= resultSize);
 retry:
     // 1. find the target middle layer node, and its version snapshot
     bool needRestart = false;
