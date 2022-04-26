@@ -542,12 +542,25 @@ void SPTree::MaybeMergeMLnode (MLNode* mnode, bool needRestart) {
 
             bool mergeSucc = mnode->leafNode->Merge (mnode->GetBloomFilter ());
             if (mergeSucc) {
-                // we recycle the merged right leaf node
+                // 1. unlink the right mnode
                 mnode->EnableBloomFilter ();
                 MLNode* nextMnode = mnode->next;
                 mnode->hkey = nextMnode->hkey;
                 nextMnode->next->prev = mnode;
                 mnode->next = nextMnode->next;
+
+                // 2. delete from top layer
+                mTopLayer.remove (nextMnode->lkey, nextMnode);
+
+                // 3. send jobs to background thread pool to update pmem top layer
+                if (mTopLayerPmem.Exist ()) {
+                    key_t tmpLkey = nextMnode->lkey;
+                    mTpool.submit ([this, tmpLkey] () { this->mTopLayerPmem.remove (tmpLkey); });
+                }
+
+                // 4. epr recycle
+                // TODO:
+
                 nextMnode->lock.writeUnlockObsolete ();
             }
         }
