@@ -528,6 +528,32 @@ retry:
     return true;
 }
 
+void SPTree::MaybeMergeMLnode (MLNode* mnode, bool needRestart) {
+    // assert the lock of mnode has been obtained
+    if (mnode->leafNode->Count () < 2) {
+        // if this mnode is smaller than 2, then we check if next sibling count
+        if (mnode->hkey != UINT64_MAX && mnode->next->leafNode->Count () < 32) {
+            // this is the right most mnode (except dummy mnode)
+            mnode->next->lock.writeLockOrRestart (needRestart);
+            if (needRestart) {
+                // next mnode is locked by others
+                return;
+            }
+
+            bool mergeSucc = mnode->leafNode->Merge (mnode->GetBloomFilter ());
+            if (mergeSucc) {
+                // we recycle the merged right leaf node
+                mnode->EnableBloomFilter ();
+                MLNode* nextMnode = mnode->next;
+                mnode->hkey = nextMnode->hkey;
+                nextMnode->next->prev = mnode;
+                mnode->next = nextMnode->next;
+                nextMnode->lock.writeUnlockObsolete ();
+            }
+        }
+    }
+}
+
 bool SPTree::remove (key_t key) {
 retry:
     // 1. find the target middle layer node, and its version snapshot
@@ -560,10 +586,15 @@ retry:
 
     // 3. try to remove from write buffer
     if (mnode->type == MLNodeTypeWithBuffer) {
+        needRestart = false;
         bool removeMNodeSucc = mnode->remove (key);
         bool removeLeafNodeSucc = false;
         if (maybeExist) {
             removeLeafNodeSucc = mBotLayer.Remove (key, mnode->leafNode);
+            do {
+                needRestart = false;
+                MaybeMergeMLnode (mnode, needRestart);
+            } while (needRestart);
         }
         if (removeMNodeSucc) {
             if (mEnableLog) {
@@ -586,7 +617,13 @@ retry:
 
     // 4. try to remove from bottom layer
     bool res = false;
-    if (maybeExist) res = mBotLayer.Remove (key, mnode->leafNode);
+    if (maybeExist) {
+        res = mBotLayer.Remove (key, mnode->leafNode);
+        do {
+            needRestart = false;
+            MaybeMergeMLnode (mnode, needRestart);
+        } while (needRestart);
+    }
     mnode->lock.writeUnlock ();
     return res;
 }

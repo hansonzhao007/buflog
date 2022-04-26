@@ -94,7 +94,7 @@ public:
 
         inline bool Valid () { return i < iend; }
         LeafNodeSlot& operator* () const { return node->slots[node->seqs[i]]; }
-        LeafNodeSlot* operator-> () const { return &node->slots[node->seqs[i]]; }
+        LeafNodeSlot* operator->() const { return &node->slots[node->seqs[i]]; }
 
         // ++a
         inline Iterator& operator++ () {
@@ -121,6 +121,9 @@ public:
     std::tuple<LeafNode64*, key_t> Split (
         const std::vector<std::pair<key_t, val_t>>& toMergedRecords, void* newLeafNodeAddr,
         BloomFilterFix64& bleft, BloomFilterFix64& bright);
+
+    // merge me with the next sibling
+    bool Merge (BloomFilterFix64& b);
 
 public:
     void SetPrev (LeafNode64* ptr);

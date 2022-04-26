@@ -62,11 +62,9 @@ private:
     void FlushMLNodeBuffer (MLNode* mnode, key_t key, val_t val);
     void SplitMLNodeAndUnlock (MLNode* mnode,
                                const std::vector<std::pair<key_t, val_t>>& toMergedRecords);
+    void MaybeMergeMLnode (MLNode* mnode, bool needRetry);
     void FlushOrSplitAndUnlock (MLNode* mnode, key_t key, val_t val);
     void SortLeafNode (MLNode* mnode, uint64_t& version, bool& needRestart);
-
-    // TODO
-    void MergeAndUnlock (MLNode* mnode);
 
     // locate the target middle layer node and its version, without lock
     std::tuple<MLNode*, uint64_t> jumpToMiddleLayer (key_t key);

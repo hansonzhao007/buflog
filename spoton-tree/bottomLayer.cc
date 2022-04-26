@@ -209,6 +209,47 @@ void LeafNode64::Sort () {
     sort_version = cur_version;
 }
 
+bool LeafNode64::Merge (BloomFilterFix64& bloomfilterLeft) {
+    size_t this_count = Count ();
+    LeafNode64* nextLeafNode = this->GetNext ();
+    size_t next_count = nextLeafNode->Count ();
+    if (this_count + next_count > 64) return false;
+
+    bloomfilterLeft.reset ();
+
+    NodeBitSet leftEmptySlots = this->EmptyBitSet ();
+    NodeBitSet leftValidSet;
+    // 1. set bloom filter using my records
+    for (int i : this->ValidBitSet ()) {
+        auto& slot = this->slots[i];
+        bloomfilterLeft.set (slot.key);
+    }
+
+    // 2. merge the right sibling
+    for (int i : nextLeafNode->ValidBitSet ()) {
+        auto& slot = nextLeafNode->slots[i];
+        this->InsertiWithoutSetValidBitmap (slot.key, slot.val, *leftEmptySlots);
+        leftValidSet.set (*leftEmptySlots);
+        ++leftEmptySlots;
+        bloomfilterLeft.set (slot.key);
+    }
+
+    // 3. skip the merged node
+    this->SetNext (nextLeafNode->GetNext ());
+    nextLeafNode->GetNext ()->SetPrev (this);
+
+    // 4. flush the kv
+    this->hkey = nextLeafNode->hkey;
+    cur_version++;
+    SPTreeCLFlush ((char*)this, sizeof (LeafNode64));
+
+    // 5. set the bitmap
+    this->valid_bitmap |= leftValidSet.bit ();
+    SPTreeMemFlush (&this->valid_bitmap);
+    SPTreeMemFlushFence ();
+    return true;
+}
+
 std::tuple<LeafNode64*, key_t> LeafNode64::Split (
     const std::vector<std::pair<key_t, val_t>>& toMergedRecords, void* newNodeAddr,
     BloomFilterFix64& bloomfilterLeft, BloomFilterFix64& bloomfilterRight) {
