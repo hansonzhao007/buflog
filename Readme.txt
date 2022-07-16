@@ -12,6 +12,32 @@ branch: fdf882d
 pactree https://github.com/cosmoss-vt/pactree
 branch: f173a0f
 
+# Download the submodules
+
+Use following command to download all submodules during git clone.
+
+```
+git clone --recurse-submodules `repo address`
+```
+
+# Folder
+
+`CCEH`: Source code of cceh
+
+`FAST_FAIR`: Source code of fast&fair
+
+`Skiplist`: Source code of Skiplist
+
+`data`: all the data in the paper. Go to the sub-folders and run `bash analysis_plot.sh` to re-produce the figures.
+
+`lib`: Third-party libraries.
+
+`spoton-tree`: SPTree source code.
+
+`src`: Source code for case studies.
+
+`testbench`: Benchmarks used in the paper.
+
 # configure PMEM 
 
 mount the pmem device to /mnt/pmem directory. create two folder under /mnt/pmem then link them as pmem0 and pmem1
@@ -30,4 +56,14 @@ ln -s /mnt/pmem/numa1 /mnt/pmem1
 sudo apt install libgtest-dev clang-10 clang gcc-10 g++-10
 sudo apt reinstall g++
 ```
+
+# compile the code
+
+run the following command to build all binaries.
+
+```
+bash build.sh
+```
+
+
 
