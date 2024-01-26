@@ -7,6 +7,7 @@
 #include <iostream>
 #include <random>
 #include <thread>
+#include <unistd.h>
 
 using namespace std;
 #include "spoton_log.h"

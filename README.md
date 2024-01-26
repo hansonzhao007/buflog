@@ -53,8 +53,14 @@ ln -s /mnt/pmem/numa1 /mnt/pmem1
 # install packages
 
 ```
-sudo apt install libgtest-dev clang-10 clang gcc-10 g++-10
+sudo apt install libgtest-dev clang-10 clang gcc-10 g++-10 libtbb-dev
 sudo apt reinstall g++
+
+sudo apt install libdaxctl-dev
+sudo apt install pandoc
+
+PMDK: https://github.com/pmem/pmdk
+VMEM: https://github.com/pmem/vmem
 ```
 
 # compile the code
